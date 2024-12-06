@@ -36,6 +36,7 @@ void init_BP(void) {
 
 void button_irqPC13_init(void) {
 #if USE_RAW_REGISTER
+    RCC_APB2ENR |= 1<<14;
     /* set PC13 as EXTI13 input */
     SYSCFG_EXTICR4 = (SYSCFG_EXTICR4 & ~(0xf << 4)) | (0x2 << 4);
     /* Setup interrupt for EXTI13, falling edge */
@@ -46,6 +47,8 @@ void button_irqPC13_init(void) {
     /* enable EXTI15-10 IRQ PC13 */
     NVIC_ISER(40 / 32) = (1 << (40 % 32));
 #else
+    rcc_periph_clock_enable(RCC_SYSCFG);
+
     exti_select_source(EXTI13, GPIOC);
 
     exti_enable_request(EXTI13);
