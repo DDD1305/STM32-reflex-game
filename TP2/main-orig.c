@@ -30,13 +30,11 @@ void init_LD2(void) {
 #endif
 }
 
-void init_BP(void) {
-    /* GPIOC_MODER = ... */
-}
+void init_BP(void) { /* GPIOC_MODER = ... */ }
 
 void button_irqPC13_init(void) {
 #if USE_RAW_REGISTER
-    RCC_APB2ENR |= 1<<14;
+    RCC_APB2ENR |= 1 << 14;
     /* set PC13 as EXTI13 input */
     SYSCFG_EXTICR4 = (SYSCFG_EXTICR4 & ~(0xf << 4)) | (0x2 << 4);
     /* Setup interrupt for EXTI13, falling edge */
@@ -168,7 +166,6 @@ char _getc(void) {
     /* À compléter */
     return 0;
 }
-
 
 /* Fonction non bloquante envoyant une chaîne par l'UART */
 int _async_puts(const char *s) {
