@@ -85,11 +85,11 @@ int main(void) {
 
     while (1){
 
-        if((GPIOC_IDR & (1 << 13)) == 0){
-            GPIOA_ODR  |= (1<<5);
-        }else{
-            GPIOA_ODR  &= ~(1<<5);
-        }
+        GPIOA_ODR  |= (1<<5);
+        tempo_500ms();
+        GPIOA_ODR  &= ~(1<<5);
+        tempo_500ms();
+
     }
     return 0;
 }
