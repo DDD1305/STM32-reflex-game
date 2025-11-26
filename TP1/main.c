@@ -18,7 +18,16 @@ void init_LD2(void) {
     GPIOA_PUPDR &= 0xFFFFF3FF;
 }
 
-void init_PB(void) { /* GPIOC_MODER = ... */ }
+void init_PB(void) { 
+
+    RCC_AHB1ENR |= 0x04;
+    GPIOC_MODER &= ~(3 << 26);
+    GPIOC_PUPDR &= ~(3<<26);
+
+
+
+
+}
 
 /* Ne pas optimiser cette fonction : on dépend du nombre
  * approximatif d'instructions qu'elle exécute
@@ -69,7 +78,18 @@ int main(void) {
     printf("APB2CLK= %9lu Hz\r\n", get_APB2CLK());
     printf("\r\n");
 
-    while (1)
-        ;
+
+
+    init_LD2();
+    init_PB();
+
+    while (1){
+
+        if((GPIOC_IDR & (1 << 13)) == 0){
+            GPIOA_ODR  |= (1<<5);
+        }else{
+            GPIOA_ODR  &= ~(1<<5);
+        }
+    }
     return 0;
 }
