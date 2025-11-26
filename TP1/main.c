@@ -82,13 +82,27 @@ int main(void) {
 
     init_LD2();
     init_PB();
+    int a=0;
+
 
     while (1){
 
-        GPIOA_ODR  |= (1<<5);
-        tempo_500ms();
-        GPIOA_ODR  &= ~(1<<5);
-        tempo_500ms();
+        if((GPIOC_IDR & (1 << 13)) == 0){
+            GPIOA_ODR  |= (1<<5);
+            a++;
+        }else{
+            if(a){
+                for(int i =0; i<4; i++){
+                    tempo_500ms();
+                    GPIOA_ODR  &= ~(1<<5);
+                    tempo_500ms();
+                    GPIOA_ODR  |= (1<<5);
+                }
+                a=0;
+            }
+            GPIOA_ODR  &= ~(1<<5);
+        }
+
 
     }
     return 0;
