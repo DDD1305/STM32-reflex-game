@@ -28,3 +28,6 @@ https://github.com/libopencm3/libopencm3-template.git
   libopencm3, il faudra aussi utiliser la doc de libopencm3 pour découvrir
   l'existance et la syntaxe de ces fonctions.
 * TP1/ où vous trouverez un point de départ pour le premier TP
+
+# Répertoires pour le second TP
+* TP2/ où vous trouverez un point de départ pour le second TP
