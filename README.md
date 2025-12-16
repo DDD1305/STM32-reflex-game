@@ -31,3 +31,8 @@ https://github.com/libopencm3/libopencm3-template.git
 
 # Répertoires pour le second TP
 * TP2/ où vous trouverez un point de départ pour le second TP
+
+# Répertoires pour le projet
+* Projet/ où vous pourrez concevoir votre projet
+* buzzer/ avec un exemple pour manipuler le buzzer
+* potentiometre/ avec un exemple pour récupérer les valeurs du potentiomètre
