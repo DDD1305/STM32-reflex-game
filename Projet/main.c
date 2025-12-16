@@ -1,27 +1,30 @@
 #include "sys/clock.h"
-#include <libopencm3/cm3/scb.h>
-#include <libopencm3/cm3/systick.h>
-#include <libopencm3/stm32/exti.h>
 #include <libopencm3/stm32/gpio.h>
 #include <libopencm3/stm32/rcc.h>
+#include <libopencm3/stm32/timer.h>
+#include <libopencm3/cm3/systick.h>  
+#include <stdint.h>
+#include <stdio.h>
+#include <stdbool.h>
+#include <string.h>
+#include <libopencm3/cm3/scb.h>
+#include <libopencm3/stm32/exti.h>
 #include <libopencm3/stm32/syscfg.h>
 #include <libopencm3/stm32/usart.h>
 #include <libopencmsis/core_cm3.h>
 #include <math.h>
-#include <stdio.h>
-#include <string.h>
+
 
 #ifndef USE_RAW_REGISTER
 #define USE_RAW_REGISTER 1
 #endif
 
-volatile uint32_t tick=0;
-volatile uint32_t frequence=1000;
-volatile uint32_t note_ticks=0;
-volatile uint32_t demi_ticks=0;
-volatile uint32_t note_freq=0;
-volatile uint32_t index=0;
+#define BUZZER_BASE 84000 
+
+volatile uint32_t note_ticks = 0;
+volatile uint32_t note_freq = 0;
 volatile bool note_jouee = false;
+volatile uint32_t index = 0;
 
 
 #define NOTE_A0 28
@@ -115,7 +118,31 @@ volatile bool note_jouee = false;
 #define NOTE_PAUSE 0
 
 
+void buzzer_pwm_init(void) {
+    /* PB9 = TIM2_CH2 en alternate function */
+    GPIOB_MODER = (GPIOB_MODER & ~(3 << 18)) | (2 << 18); // AF mode
+    GPIOB_AFRH = (GPIOB_AFRH & ~(0xf << 4)) | (1 << 4);  // AF1 = TIM2
 
+    /* PWM mode configuration */
+    TIM2_CR1 = 0x0080;   // ARPE
+    TIM2_CCMR1 = 0x6800; // PWM mode 1 sur CH2
+    TIM2_CCER = 0x0010;  // CH2 enable
+    TIM2_PSC = get_APB1TIMCLK() / BUZZER_BASE - 1;
+    TIM2_CNT = 0;
+    TIM2_EGR |= 0x1; // update
+}
+
+void play_buzzer(uint32_t freq) {
+    if(freq == 0) {
+        TIM2_CR1 &= ~0x1;
+        return;
+    }
+    uint32_t arr = BUZZER_BASE / freq - 1;
+    TIM2_ARR = arr;
+    TIM2_CCR2 = arr / 2; 
+    TIM2_EGR |= 0x1;   
+    TIM2_CR1 |= 0x1;     
+}
 
 void init_RGB(void) {
 #if USE_RAW_REGISTER
@@ -148,17 +175,6 @@ void init_BP(void) {
     RCC_AHB1ENR |= 0x04;
     GPIOC_MODER &= ~(3 << 26);
     GPIOC_PUPDR &= ~(3<<26);
-}
-
-
-void init_BZ(void){
-
-    RCC_AHB1ENR |= (1<<1);
-    GPIOB_MODER = (GPIOB_MODER & ~(0x3 << (18))) | (0x1 << (18));
-    GPIOB_OTYPER &= ~(0x1 << 9);
-    GPIOB_OSPEEDR = (GPIOB_OSPEEDR & ~(0x3 << 18)) | (0x3 << 18);
-    GPIOB_PUPDR &= ~(0x3 << 18);
-
 }
 
 
@@ -242,24 +258,14 @@ void systick_init(uint32_t freq) {
  */
 // __attribute__((interrupt))
 void sys_tick_handler() {
-   if(note_ticks > 0){
-    note_ticks--;
-   }
-   if(note_freq != 0){
-    demi_ticks--;
-    if(demi_ticks <= 0 && note_freq != 0){
-        GPIOB_ODR  ^= (1<<9);
-        demi_ticks = frequence / (2*note_freq);
+   if(note_ticks > 0) {
+        note_ticks--;
+        if(note_ticks == 0 && note_jouee) {
+            play_buzzer(0); 
+            index++;
+            note_jouee = false;
+        }
     }
-   }
-   
-   if(note_ticks <= 0){
-    GPIOB_ODR  |= (1<<9);
-    index++;
-    note_jouee = false;
-    note_freq = 0;
-   }
-   
 }
 
 void _putc(const char c) {
@@ -306,7 +312,7 @@ static volatile uint32_t mode = 0;
 
 void exti15_10_isr() {
 #if USE_RAW_REGISTER
-    EXTI_PR |= (1 << 13); /* Clear pending register EXTIPR[13] */
+    EXTI_PR &= ~(1 << 13); /* Clear pending register EXTIPR[13] */
 #else
     exti_reset_request(EXTI13);
 #endif
@@ -316,15 +322,12 @@ void exti15_10_isr() {
 
 
 __attribute__((optimize("O0"))) void play_note(uint32_t freq, uint32_t duree_ms) {
-    note_ticks = duree_ms;
     note_freq = freq;
-    if(freq == 0) {
-        demi_ticks = 0;
-        GPIOB_ODR |= (1<<9);
-    } else {
-        demi_ticks = frequence / (2*freq);
-    }
+    note_ticks = duree_ms;
+    play_buzzer(freq);
+    note_jouee = true;
 }
+
 
 
 int main(void) {
@@ -341,10 +344,16 @@ int main(void) {
 
     init_RGB();
 
-    systick_init((uint32_t)1000);
+    printf("\e[2J\e[1;1H\r\n");
+    printf("STM32 PWM Buzzer Melody\n");
+
+    rcc_periph_clock_enable(RCC_GPIOB);
+    rcc_periph_clock_enable(RCC_TIM2);
+
+    buzzer_pwm_init();
+    systick_init(1000); // SysTick toutes les 1 ms
 
     init_BP();
-    init_BZ();
         
     bool tmp;
 
@@ -352,10 +361,269 @@ int main(void) {
     //char c;
     //c = _getc();
     //_putc(c);
-    uint32_t notes[] = {NOTE_E4, 0, NOTE_E4, 0,NOTE_F4, 0,NOTE_G4, NOTE_G4, NOTE_F4, NOTE_D4, NOTE_C4, NOTE_C4, NOTE_D4, NOTE_E4, NOTE_E4, NOTE_E4, NOTE_E4};
-    uint32_t durees[] = {500, 50, 500, 50, 500, 50 ,500, 500, 500, 500, 500, 500, 500, 1000, 1000, 1000, 1000};
-    
-    while (1){
+   //uint32_t notes[] = {NOTE_E4, 0, NOTE_E4, 0,NOTE_F4, 0,NOTE_G4, NOTE_G4, NOTE_F4, NOTE_D4, NOTE_C4, NOTE_C4, NOTE_D4, NOTE_E4, NOTE_E4, NOTE_E4, NOTE_E4, NOTE_PAUSE};
+   //uint32_t durees[] = {500, 50, 500, 50, 500, 50 ,500, 500, 500, 500, 500, 500, 500, 1000, 1000, 1000, 1000, 250};
+/*uint32_t notes[] = {
+  NOTE_E5, NOTE_DS5, NOTE_E5, NOTE_DS5, NOTE_E5, NOTE_B4, NOTE_D5, NOTE_C5,
+  NOTE_A4, NOTE_C4, NOTE_E4, NOTE_A4, NOTE_B4, NOTE_E4, NOTE_GS4, NOTE_B4,
+  NOTE_C5, NOTE_E4, NOTE_E5, NOTE_DS5, NOTE_E5, NOTE_DS5, NOTE_E5, NOTE_B4,
+  NOTE_D5, NOTE_C5, NOTE_A4, NOTE_PAUSE
+};
+
+uint32_t durees[] = {
+  250, 250, 250, 250, 250, 250, 250, 250,
+  500, 250, 250, 250, 250, 250, 250, 250,
+  500, 250, 250, 250, 250, 250, 250, 250,
+  500, 1000, 250
+};*/
+
+/*uint32_t notes[] = {
+  NOTE_E5, NOTE_E5, NOTE_PAUSE, NOTE_E5,
+  NOTE_PAUSE, NOTE_C5, NOTE_E5, NOTE_PAUSE,
+  NOTE_G5, NOTE_PAUSE, NOTE_G4, NOTE_PAUSE,
+  NOTE_C5, NOTE_PAUSE, NOTE_G4, NOTE_PAUSE,
+  NOTE_E4, NOTE_PAUSE, NOTE_A4, NOTE_PAUSE,
+  NOTE_B4, NOTE_PAUSE, NOTE_AS4, NOTE_A4,
+  NOTE_G4, NOTE_E5, NOTE_G5, NOTE_A5,
+  NOTE_F5, NOTE_G5, NOTE_PAUSE, NOTE_E5,
+  NOTE_C5, NOTE_D5, NOTE_B4
+};
+
+uint32_t durees[] = {
+  250, 250, 250, 250,
+  250, 250, 250, 250,
+  250, 250, 250, 250,
+  250, 250, 250, 250,
+  250, 250, 250, 250,
+  250, 250, 250, 250,
+  250, 250, 250, 250,
+  250, 250, 250, 250,
+  250, 250, 250
+};*/
+/* GAME OF THRONE
+uint32_t notes[] = {
+  NOTE_G4, NOTE_C4, NOTE_DS4, NOTE_F4, NOTE_G4, NOTE_C4, NOTE_DS4, NOTE_F4,
+  NOTE_G4, NOTE_C4, NOTE_DS4, NOTE_F4, NOTE_G4, NOTE_C4, NOTE_DS4, NOTE_F4,
+  NOTE_G4, NOTE_C4, NOTE_E4, NOTE_F4, NOTE_G4, NOTE_C4, NOTE_E4, NOTE_F4,
+  NOTE_G4, NOTE_C4, NOTE_E4, NOTE_F4, NOTE_G4, NOTE_C4, NOTE_E4, NOTE_F4,
+  NOTE_G4, NOTE_C4, // dotted notes approximated as double durations
+
+  NOTE_DS4, NOTE_F4, NOTE_G4, NOTE_C4, NOTE_DS4, NOTE_F4,
+  NOTE_D4,
+  NOTE_F4, NOTE_AS3,
+  NOTE_DS4, NOTE_D4, NOTE_F4, NOTE_AS3,
+  NOTE_DS4, NOTE_D4, NOTE_C4,
+
+  NOTE_G4, NOTE_C4,
+  NOTE_DS4, NOTE_F4, NOTE_G4, NOTE_C4, NOTE_DS4, NOTE_F4,
+  NOTE_D4,
+  NOTE_F4, NOTE_AS3,
+  NOTE_DS4, NOTE_D4, NOTE_F4, NOTE_AS3,
+  NOTE_DS4, NOTE_D4, NOTE_C4,
+  NOTE_G4, NOTE_C4,
+  NOTE_DS4, NOTE_F4, NOTE_G4, NOTE_C4, NOTE_DS4, NOTE_F4,
+
+  NOTE_D4,
+  NOTE_F4, NOTE_AS3,
+  NOTE_D4, NOTE_DS4, NOTE_D4, NOTE_AS3,
+  NOTE_C4,
+  NOTE_C5,
+  NOTE_AS4,
+  NOTE_C4,
+  NOTE_G4,
+  NOTE_DS4,
+  NOTE_DS4, NOTE_F4,
+  NOTE_G4,
+
+  NOTE_C5,
+  NOTE_AS4,
+  NOTE_C4,
+  NOTE_G4,
+  NOTE_DS4,
+  NOTE_DS4, NOTE_D4,
+  NOTE_C5, NOTE_G4, NOTE_GS4, NOTE_AS4, NOTE_C5, NOTE_G4, NOTE_GS4, NOTE_AS4,
+  NOTE_C5, NOTE_G4, NOTE_GS4, NOTE_AS4, NOTE_C5, NOTE_G4, NOTE_GS4, NOTE_AS4,
+
+  NOTE_PAUSE, NOTE_GS5, NOTE_AS5, NOTE_C6, NOTE_G5, NOTE_GS5, NOTE_AS5,
+  NOTE_C6, NOTE_G5, NOTE_GS5, NOTE_AS5, NOTE_C6, NOTE_G5, NOTE_GS5, NOTE_AS5
+};
+
+uint32_t durees[] = {
+  250, 250, 125, 125, 250, 250, 125, 125,
+  250, 250, 125, 125, 250, 250, 125, 125,
+  250, 250, 125, 125, 250, 250, 125, 125,
+  250, 250, 125, 125, 250, 250, 125, 125,
+  500, 500, // dotted notes
+
+  125, 125, 250, 250, 125, 125,
+  1000,
+  500, 500,
+  125, 125, 250, 500,
+  125, 125, 1000,
+
+  500, 500,
+  125, 125, 250, 250, 125, 125,
+  1000,
+  500, 500,
+  125, 125, 250, 500,
+  125, 125, 1000,
+  500, 500,
+  125, 125, 250, 250, 125, 125,
+
+  1000,
+  500, 500,
+  125, 125, 125, 125,
+  500,
+  500,
+  500,
+  500,
+  500,
+  500,
+  125, 125,
+  1000,
+
+  500,
+  500,
+  500,
+  500,
+  500,
+  125, 125,
+  250, 250, 125, 125, 250, 250, 125, 125,
+  250, 250, 125, 125, 250, 250, 125, 125,
+
+  500, 125, 125, 250, 500, 125, 125,
+  250, 125, 125, 125, 250, 500, 125, 125
+};
+*/
+
+uint32_t notes[] = {
+  NOTE_C5,
+  NOTE_F5, NOTE_F5, NOTE_G5, NOTE_F5, NOTE_E5,
+  NOTE_D5, NOTE_D5, NOTE_D5,
+  NOTE_G5, NOTE_G5, NOTE_A5, NOTE_G5, NOTE_F5,
+  NOTE_E5, NOTE_C5, NOTE_C5,
+  NOTE_A5, NOTE_A5, NOTE_AS5, NOTE_A5, NOTE_G5,
+  NOTE_F5, NOTE_D5, NOTE_C5, NOTE_C5,
+  NOTE_D5, NOTE_G5, NOTE_E5,
+
+  NOTE_F5, NOTE_C5,
+  NOTE_F5, NOTE_F5, NOTE_G5, NOTE_F5, NOTE_E5,
+  NOTE_D5, NOTE_D5, NOTE_D5,
+  NOTE_G5, NOTE_G5, NOTE_A5, NOTE_G5, NOTE_F5,
+  NOTE_E5, NOTE_C5, NOTE_C5,
+  NOTE_A5, NOTE_A5, NOTE_AS5, NOTE_A5, NOTE_G5,
+  NOTE_F5, NOTE_D5, NOTE_C5, NOTE_C5,
+  NOTE_D5, NOTE_G5, NOTE_E5,
+  NOTE_F5, NOTE_C5,
+
+  NOTE_F5, NOTE_F5, NOTE_F5,
+  NOTE_E5, NOTE_E5,
+  NOTE_F5, NOTE_E5, NOTE_D5,
+  NOTE_C5, NOTE_A5,
+  NOTE_AS5, NOTE_A5, NOTE_G5,
+  NOTE_C6, NOTE_C5, NOTE_C5, NOTE_C5,
+  NOTE_D5, NOTE_G5, NOTE_E5,
+  NOTE_F5, NOTE_C5,
+  NOTE_F5, NOTE_F5, NOTE_G5, NOTE_F5, NOTE_E5,
+  NOTE_D5, NOTE_D5, NOTE_D5,
+
+  NOTE_G5, NOTE_G5, NOTE_A5, NOTE_G5, NOTE_F5,
+  NOTE_E5, NOTE_C5, NOTE_C5,
+  NOTE_A5, NOTE_A5, NOTE_AS5, NOTE_A5, NOTE_G5,
+  NOTE_F5, NOTE_D5, NOTE_C5, NOTE_C5,
+  NOTE_D5, NOTE_G5, NOTE_E5,
+  NOTE_F5, NOTE_C5,
+  NOTE_F5, NOTE_F5, NOTE_F5,
+  NOTE_E5, NOTE_E5,
+  NOTE_F5, NOTE_E5, NOTE_D5,
+
+  NOTE_C5, NOTE_A5,
+  NOTE_AS5, NOTE_A5, NOTE_G5,
+  NOTE_C6, NOTE_C5, NOTE_C5, NOTE_C5,
+  NOTE_D5, NOTE_G5, NOTE_E5,
+  NOTE_F5, NOTE_C5,
+  NOTE_F5, NOTE_F5, NOTE_G5, NOTE_F5, NOTE_E5,
+  NOTE_D5, NOTE_D5, NOTE_D5,
+  NOTE_G5, NOTE_G5, NOTE_A5, NOTE_G5, NOTE_F5,
+  NOTE_E5, NOTE_C5, NOTE_C5,
+
+  NOTE_A5, NOTE_A5, NOTE_AS5, NOTE_A5, NOTE_G5,
+  NOTE_F5, NOTE_D5, NOTE_C5, NOTE_C5,
+  NOTE_D5, NOTE_G5, NOTE_E5,
+  NOTE_F5, NOTE_C5,
+  NOTE_F5, NOTE_F5, NOTE_G5, NOTE_F5, NOTE_E5,
+  NOTE_D5, NOTE_D5, NOTE_D5,
+  NOTE_G5, NOTE_G5, NOTE_A5, NOTE_G5, NOTE_F5,
+  NOTE_E5, NOTE_C5, NOTE_C5,
+
+  NOTE_A5, NOTE_A5, NOTE_AS5, NOTE_A5, NOTE_G5,
+  NOTE_F5, NOTE_D5, NOTE_C5, NOTE_C5,
+  NOTE_D5, NOTE_G5, NOTE_E5,
+  NOTE_F5, NOTE_C5,
+  NOTE_PAUSE
+};
+
+uint32_t durees[] = {
+  429, // C5, 4 (quarter note)
+  429, 214, 214, 214, 214,
+  429, 429, 429,
+  429, 214, 214, 214, 214,
+  429, 429, 429,
+  429, 214, 214, 214, 214,
+  429, 429, 214, 214,
+  429, 429, 429,
+
+  857, 429,
+  429, 214, 214, 214, 214,
+  429, 429, 429,
+  429, 214, 214, 214, 214,
+  429, 429, 429,
+  429, 214, 214, 214, 214,
+  429, 429, 214, 214,
+  429, 429, 429,
+  857, 429,
+
+  429, 429, 429,
+  857, 429,
+  429, 429, 429,
+  857, 429,
+  429, 429, 429,
+  429, 429, 214, 214,
+  429, 429, 429,
+  857, 429,
+  429, 214, 214, 214, 214,
+  429, 429, 429,
+
+  429, 214, 214, 214, 214,
+  429, 429, 429,
+  429, 214, 214, 214, 214,
+  429, 429, 214, 214,
+  429, 429, 429,
+  857, 429,
+  429, 429, 429,
+  857, 429,
+  429, 429, 429,
+
+  857, 429,
+  429, 429, 429,
+  429, 429, 214, 214,
+  429, 429, 429,
+  857, 429,
+  429, 214, 214, 214, 214,
+  429, 429, 429,
+  429, 214, 214, 214, 214,
+  429, 429, 429,
+
+  429, 214, 214, 214, 214,
+  429, 429, 214, 214,
+  429, 429, 429,
+  857, 429
+};
+
+
+
+ 
+   while (1){
         
         //tmp = ((GPIOC_IDR & (1 << 13)) == 0);
         // if(((GPIOC_IDR & (1 << 13)) == 0) ){
@@ -375,7 +643,7 @@ int main(void) {
         // GPIOB_ODR  &=  ~(1<<9);
 
         
-        if(!note_jouee && index < 17){
+        if(!note_jouee && index < 15){
             play_note(notes[index], durees[index]);
             note_jouee = true;
         }
