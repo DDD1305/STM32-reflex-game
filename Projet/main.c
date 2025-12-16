@@ -17,75 +17,100 @@
 
 volatile uint32_t tick=0;
 volatile uint32_t frequence=1000;
+volatile uint32_t note_ticks=0;
+volatile uint32_t demi_ticks=0;
 
 
+
+#define NOTE_A0 28
+#define NOTE_AS0 29
+#define NOTE_B0 31
+#define NOTE_C1 33
+#define NOTE_CS1 35
+#define NOTE_D1 37
+#define NOTE_DS1 39
+#define NOTE_E1 41
+#define NOTE_F1 44
+#define NOTE_FS1 46
+#define NOTE_G1 49
+#define NOTE_GS1 52
+#define NOTE_A1 55
+#define NOTE_AS1 58
+#define NOTE_B1 62
+#define NOTE_C2 65
+#define NOTE_CS2 69
+#define NOTE_D2 73
+#define NOTE_DS2 78
+#define NOTE_E2 82
+#define NOTE_F2 87
+#define NOTE_FS2 93
+#define NOTE_G2 98
+#define NOTE_GS2 104
+#define NOTE_A2 110
+#define NOTE_AS2 117
+#define NOTE_B2 123
+#define NOTE_C3 131
+#define NOTE_CS3 139
+#define NOTE_D3 147
+#define NOTE_DS3 156
+#define NOTE_E3 165
+#define NOTE_F3 175
+#define NOTE_FS3 185
+#define NOTE_G3 196
+#define NOTE_GS3 208
+#define NOTE_A3 220
+#define NOTE_AS3 233
+#define NOTE_B3 247
 #define NOTE_C4 262
+#define NOTE_CS4 277
 #define NOTE_D4 294
+#define NOTE_DS4 311
 #define NOTE_E4 330
 #define NOTE_F4 349
+#define NOTE_FS4 370
 #define NOTE_G4 392
+#define NOTE_GS4 415
 #define NOTE_A4 440
+#define NOTE_AS4 466
 #define NOTE_B4 494
 #define NOTE_C5 523
-
-// Notes supplémentaires pour Mario
-#define NOTE_C5 523
+#define NOTE_CS5 554
+#define NOTE_D5 587
+#define NOTE_DS5 622
 #define NOTE_E5 659
+#define NOTE_F5 698
+#define NOTE_FS5 740
 #define NOTE_G5 784
-#define NOTE_PAUSE 0 // Pour les silences
-
-// --- Fréquences de la gamme (Octave 4 et 5) ---
-#define NOTE_C4 262
-// ... (Autres notes de l'Octave 4 inchangées)
-#define NOTE_A4 440
-#define NOTE_B4 494
-
-// Notes nécessaires pour "Pour Élise"
-#define NOTE_C5 523
-#define NOTE_D5 587 // Nouveau
-#define NOTE_DS5 622 // D#5, Nouveau
-#define NOTE_E5 659
-#define NOTE_G5 784 
+#define NOTE_GS5 831
+#define NOTE_A5 880
+#define NOTE_AS5 932
+#define NOTE_B5 988
+#define NOTE_C6 1047
+#define NOTE_CS6 1109
+#define NOTE_D6 1175
+#define NOTE_DS6 1245
+#define NOTE_E6 1319
+#define NOTE_F6 1397
+#define NOTE_FS6 1480
+#define NOTE_G6 1568
+#define NOTE_GS6 1661
+#define NOTE_A6 1760
+#define NOTE_AS6 1865
+#define NOTE_B6 1976
+#define NOTE_C7 2093
+#define NOTE_CS7 2217
+#define NOTE_D7 2349
+#define NOTE_DS7 2489
+#define NOTE_E7 2637
+#define NOTE_F7 2794
+#define NOTE_FS7 2960
+#define NOTE_G7 3136
+#define NOTE_GS7 3322
+#define NOTE_A7 3520
+#define NOTE_AS7 3729
+#define NOTE_B7 3951
+#define NOTE_C8 4186
 #define NOTE_PAUSE 0
-
-
-// --- Fréquences de la gamme (Octave 3, 4 et 5) ---
-#define NOTE_F3 175 // Nouveau - Basse
-#define NOTE_G3 196 // Nouveau - Basse
-
-#define NOTE_C4 262
-// ... (Autres notes de l'Octave 4 inchangées)
-#define NOTE_A4 440
-#define NOTE_B4 494
-
-// ... (Notes C5, D5, DS5, E5, G5)
-#define NOTE_PAUSE 0
-
-#define NOTE_C4 262
-#define NOTE_D4 294
-#define NOTE_E4 330
-#define NOTE_F4 349
-#define NOTE_G4 392
-#define NOTE_A4 440
-#define NOTE_B4 494
-
-#define NOTE_C5 523 // Pour les notes aiguës
-#define NOTE_PAUSE 0
-
-
-// --- Mélodie de Star Wars (Début du Main Theme) ---
-uint32_t starwars_melody[] = {
-    NOTE_C4, NOTE_G4, NOTE_F4, NOTE_E4, NOTE_D4, NOTE_C5, 
-    NOTE_G4, NOTE_F4, NOTE_E4, NOTE_D4, NOTE_C5, NOTE_G4
-};
-
-uint32_t starwars_duration[] = {
-    500, 500, 125, 125, 125, 500, 
-    250, 125, 125, 125, 500, 250
-};
-
-uint32_t melody_length = sizeof(starwars_melody) / sizeof(uint32_t);
-
 
 
 
@@ -146,6 +171,16 @@ __attribute__((optimize("O0"))) void tempo_500ms(void) {
     }
 }
 
+/*__attribute__((optimize("O0"))) void delai_ms(volatile uint32_t ms) {
+    volatile uint32_t cycles_par_ms = get_SYSCLK() / 100000; //utiliser une interruption / variable globale
+    volatile uint32_t i, j;
+    for (i = 0; i < ms; i++) {
+        for (j = 0; j < cycles_par_ms; j++) {
+           ;
+        }
+    }
+}
+*/
 void init_USART(void) {
 #if USE_RAW_REGISTER
     RCC_AHB1ENR |= 0x01;
@@ -233,6 +268,17 @@ void sys_tick_handler() {
     GPIOA_ODR  ^= (1<<9);
     GPIOA_ODR  ^= (1<<10);
     */
+   demi_ticks--;
+   note_ticks--;
+
+   if(demi_ticks <= 0){
+    GPIOB_ODR  ^= (1<<9);
+    demi_ticks = note_ticks / 2;
+   }
+   if(note_ticks <= 0){
+    GPIOB_ODR  &= ~(1<<9);
+   }
+   
 }
 
 void _putc(const char c) {
@@ -286,55 +332,36 @@ void exti15_10_isr() {
     mode = mode ^ 1; /* switch the mode value 0 <-> 1 */
 }
 
-__attribute__((optimize("O0"))) void delay_ms(volatile uint32_t ms) {
-    // Cette valeur doit être ajustée en fonction de la vitesse d'horloge
-    // et de l'optimisation du compilateur.
-    // Pour une fréquence d'horloge de 100MHz (typique F446), une valeur
-    // de ~10000 donne environ 1ms.
-    volatile uint32_t cycles_per_ms = get_SYSCLK() / 100000; // Ajustement grossier pour l'exemple
-    volatile uint32_t i, j;
-    for (i = 0; i < ms; i++) {
-        for (j = 0; j < cycles_per_ms; j++) {
-            __asm__("nop"); // ou simplement ;
-        }
-    }
-}
 
 
-// Fonction pour jouer une note avec une fréquence et une durée
-__attribute__((optimize("O0"))) void play_note(uint32_t frequency, uint32_t duration_ms) {
-    if (frequency == 0) { // Pour une pause
+__attribute__((optimize("O0"))) void play_note(uint32_t freq, uint32_t duree_ms) {
+    note_ticks = duree_ms;
+    if (freq == 0) { 
         GPIOB_ODR  &=  ~(1<<9);
-        delay_ms(duration_ms);
+        delai_ms(duree_ms);
         return;
     }
 
-    // Le demi-période en microsecondes (pour basculer le pin)
-    // Period (s) = 1 / frequency
-    // Half Period (µs) = (1 / (2 * frequency)) * 1,000,000
-    uint32_t half_period_us = 500000 / frequency;
-    
-    // Le nombre total de cycles pour la durée
-    // Total Cycles = duration_ms / (Period_ms)
-    uint32_t num_cycles = (duration_ms * frequency) / 1000;
+    uint32_t moitie = 500000 / freq;
+    demi_ticks = moitie;
 
-    // Ajustement de la durée de la micro-boucle pour une horloge rapide
-    // Ce calage est très dépendant de l'horloge et de l'optimisation, 
-    // l'idéal serait d'utiliser un timer périphérique.
-    uint32_t delay_count = half_period_us * (get_SYSCLK() / 10000000); 
+    uint32_t cycles = (duree_ms * freq) / frequence;
 
-    for (uint32_t i = 0; i < num_cycles; i++) {
-        // État Haut (High)
+    uint32_t delai = moitie * (get_SYSCLK() / 10000000); 
+
+    for (uint32_t i = 0; i < cycles; i++) {
         GPIOB_ODR  |= (1<<9);
-        for(volatile uint32_t k = 0; k < delay_count; k++);
-
-        // État Bas (Low)
+        for(volatile uint32_t k = 0; k < delai; k++);
         GPIOB_ODR  &= ~(1<<9);
-        for(volatile uint32_t k = 0; k < delay_count; k++);
+        for(volatile uint32_t k = 0; k < delai; k++);
     }
-    
-    // S'assurer que le buzzer s'éteint après la note
     GPIOB_ODR  &= ~(1<<9);
+}
+
+void boucle_play(uint32_t note, uint32_t temp, int nb_rep){
+    for(int i=0; i<nb_rep; i++){
+        play_note(note,temp);
+    }
 }
 
 int main(void) {
@@ -351,13 +378,12 @@ int main(void) {
 
     init_RGB();
 
-    //systick_init((uint32_t)1000);
+    systick_init((uint32_t)1000);
 
     init_BP();
     init_BZ();
         
     bool tmp;
-    uint32_t tempo = 250;
 
     //printf("c?\n\r");
     //char c;
@@ -381,40 +407,14 @@ int main(void) {
         // }
 
         // GPIOB_ODR  &=  ~(1<<9);
-
-        // Jouer la gamme montante
-        // play_note(NOTE_C4, tempo);
-        // play_note(NOTE_D4, tempo);
-        // play_note(NOTE_E4, tempo);
-        // play_note(NOTE_F4, tempo);
-        // play_note(NOTE_G4, tempo);
-        // play_note(NOTE_A4, tempo);
-        // play_note(NOTE_B4, tempo);
-        // play_note(NOTE_C5, tempo*2); // Le do aigu est plus long
-        
-        // // Petite pause
-        // delay_ms(500);
-
-        // // Optionnel: Jouer la gamme descendante
-        // play_note(NOTE_C5, tempo);
-        // play_note(NOTE_B4, tempo);
-        // play_note(NOTE_A4, tempo);
-        // play_note(NOTE_G4, tempo);
-        // play_note(NOTE_F4, tempo);
-        // play_note(NOTE_E4, tempo);
-        // play_note(NOTE_D4, tempo);
-        // play_note(NOTE_C4, tempo*2); // Le do grave est plus long
-
-        // // Longue pause entre les répétitions
-        // delay_ms(2000);
-        
-        for (uint32_t i = 0; i < melody_length; i++) {
-            play_note(starwars_melody[i], starwars_duration[i]);
-            // Petite pause de séparation
-            delay_ms(10); 
-        }
-
-        // Longue pause avant de recommencer la boucle
+        boucle_play(NOTE_E4, 500, 2);
+        play_note(NOTE_F4, 500);
+        boucle_play(NOTE_G4, 500, 2);
+        play_note(NOTE_F4, 500);
+        play_note(NOTE_D4, 500);
+        boucle_play(NOTE_C4, 500, 2);
+        play_note(NOTE_D4, 500);
+        boucle_play(NOTE_E4, 1000, 4);
         delay_ms(3000);
 
     }
