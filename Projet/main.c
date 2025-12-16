@@ -19,7 +19,9 @@ volatile uint32_t tick=0;
 volatile uint32_t frequence=1000;
 volatile uint32_t note_ticks=0;
 volatile uint32_t demi_ticks=0;
-
+volatile uint32_t note_freq=0;
+volatile uint32_t index=0;
+volatile bool note_jouee = false;
 
 
 #define NOTE_A0 28
@@ -171,16 +173,6 @@ __attribute__((optimize("O0"))) void tempo_500ms(void) {
     }
 }
 
-/*__attribute__((optimize("O0"))) void delai_ms(volatile uint32_t ms) {
-    volatile uint32_t cycles_par_ms = get_SYSCLK() / 100000; //utiliser une interruption / variable globale
-    volatile uint32_t i, j;
-    for (i = 0; i < ms; i++) {
-        for (j = 0; j < cycles_par_ms; j++) {
-           ;
-        }
-    }
-}
-*/
 void init_USART(void) {
 #if USE_RAW_REGISTER
     RCC_AHB1ENR |= 0x01;
@@ -250,33 +242,22 @@ void systick_init(uint32_t freq) {
  */
 // __attribute__((interrupt))
 void sys_tick_handler() {
-    /* Le fait de définir cette fonction suffit pour
-     * qu'elle soit utilisée comme traitant,
-     * cf les fichiers de compilation et d'édition de lien
-     * pour plus de détails.
-     */
-     /*
-    tick++;
-    if (tick >= frequence) {   
-        GPIOA_ODR  ^= (1<<8);
-        //GPIOA_ODR  ^= (1<<9);
-        GPIOA_ODR  ^= (1<<10);
-        tick=0;
-    }
-    *//*
-    GPIOA_ODR  ^= (1<<8);
-    GPIOA_ODR  ^= (1<<9);
-    GPIOA_ODR  ^= (1<<10);
-    */
-   demi_ticks--;
-   note_ticks--;
-
-   if(demi_ticks <= 0){
-    GPIOB_ODR  ^= (1<<9);
-    demi_ticks = note_ticks / 2;
+   if(note_ticks > 0){
+    note_ticks--;
    }
+   if(note_freq != 0){
+    demi_ticks--;
+    if(demi_ticks <= 0 && note_freq != 0){
+        GPIOB_ODR  ^= (1<<9);
+        demi_ticks = frequence / (2*note_freq);
+    }
+   }
+   
    if(note_ticks <= 0){
-    GPIOB_ODR  &= ~(1<<9);
+    GPIOB_ODR  |= (1<<9);
+    index++;
+    note_jouee = false;
+    note_freq = 0;
    }
    
 }
@@ -336,33 +317,15 @@ void exti15_10_isr() {
 
 __attribute__((optimize("O0"))) void play_note(uint32_t freq, uint32_t duree_ms) {
     note_ticks = duree_ms;
-    if (freq == 0) { 
-        GPIOB_ODR  &=  ~(1<<9);
-        delai_ms(duree_ms);
-        return;
-    }
-
-    uint32_t moitie = 500000 / freq;
-    demi_ticks = moitie;
-
-    uint32_t cycles = (duree_ms * freq) / frequence;
-
-    uint32_t delai = moitie * (get_SYSCLK() / 10000000); 
-
-    for (uint32_t i = 0; i < cycles; i++) {
-        GPIOB_ODR  |= (1<<9);
-        for(volatile uint32_t k = 0; k < delai; k++);
-        GPIOB_ODR  &= ~(1<<9);
-        for(volatile uint32_t k = 0; k < delai; k++);
-    }
-    GPIOB_ODR  &= ~(1<<9);
-}
-
-void boucle_play(uint32_t note, uint32_t temp, int nb_rep){
-    for(int i=0; i<nb_rep; i++){
-        play_note(note,temp);
+    note_freq = freq;
+    if(freq == 0) {
+        demi_ticks = 0;
+        GPIOB_ODR |= (1<<9);
+    } else {
+        demi_ticks = frequence / (2*freq);
     }
 }
+
 
 int main(void) {
     printf("\e[2J\e[1;1H\r\n");
@@ -389,6 +352,9 @@ int main(void) {
     //char c;
     //c = _getc();
     //_putc(c);
+    uint32_t notes[] = {NOTE_E4, 0, NOTE_E4, 0,NOTE_F4, 0,NOTE_G4, NOTE_G4, NOTE_F4, NOTE_D4, NOTE_C4, NOTE_C4, NOTE_D4, NOTE_E4, NOTE_E4, NOTE_E4, NOTE_E4};
+    uint32_t durees[] = {500, 50, 500, 50, 500, 50 ,500, 500, 500, 500, 500, 500, 500, 1000, 1000, 1000, 1000};
+    
     while (1){
         
         //tmp = ((GPIOC_IDR & (1 << 13)) == 0);
@@ -407,16 +373,12 @@ int main(void) {
         // }
 
         // GPIOB_ODR  &=  ~(1<<9);
-        boucle_play(NOTE_E4, 500, 2);
-        play_note(NOTE_F4, 500);
-        boucle_play(NOTE_G4, 500, 2);
-        play_note(NOTE_F4, 500);
-        play_note(NOTE_D4, 500);
-        boucle_play(NOTE_C4, 500, 2);
-        play_note(NOTE_D4, 500);
-        boucle_play(NOTE_E4, 1000, 4);
-        delay_ms(3000);
 
+        
+        if(!note_jouee && index < 17){
+            play_note(notes[index], durees[index]);
+            note_jouee = true;
+        }
     }
     return 0;
 }
