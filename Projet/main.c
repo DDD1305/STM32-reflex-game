@@ -1,27 +1,33 @@
 #include "sys/clock.h"
-#include <libopencm3/cm3/scb.h>
-#include <libopencm3/cm3/systick.h>
-#include <libopencm3/stm32/exti.h>
 #include <libopencm3/stm32/gpio.h>
 #include <libopencm3/stm32/rcc.h>
+#include <libopencm3/stm32/timer.h>
+#include <libopencm3/cm3/systick.h>  
+#include <stdint.h>
+#include <stdio.h>
+#include <stdbool.h>
+#include <string.h>
+#include <stdlib.h>
+#include <libopencm3/cm3/scb.h>
+#include <libopencm3/stm32/exti.h>
 #include <libopencm3/stm32/syscfg.h>
 #include <libopencm3/stm32/usart.h>
 #include <libopencmsis/core_cm3.h>
+#include <libopencm3/cm3/nvic.h>
 #include <math.h>
-#include <stdio.h>
-#include <string.h>
+
 
 #ifndef USE_RAW_REGISTER
 #define USE_RAW_REGISTER 1
 #endif
 
-volatile uint32_t tick=0;
-volatile uint32_t frequence=1000;
-volatile uint32_t note_ticks=0;
-volatile uint32_t demi_ticks=0;
-volatile uint32_t note_freq=0;
-volatile uint32_t index=0;
+#define BUZZER_BASE 84000 
+
+volatile uint32_t note_ticks = 0;
+volatile uint32_t note_freq = 0;
 volatile bool note_jouee = false;
+volatile uint32_t index = 0;
+volatile uint32_t ms = 0;
 
 
 #define NOTE_A0 28
@@ -114,8 +120,34 @@ volatile bool note_jouee = false;
 #define NOTE_C8 4186
 #define NOTE_PAUSE 0
 
+//Fonction donnée dans etu_projet
+void buzzer_pwm_init(void) {
+    /* buzzer is on TIM2_CH2 */
+    /* configure PB9 as alternate function TIM2 */
+    GPIOB_MODER = (GPIOB_MODER & ~(3 << 18)) | (2 << 18); 
+    /* setup TIM2_CH2 as alternate function */
+    GPIOB_AFRH = (GPIOB_AFRH & ~(0xf << 4)) | (1 << 4);  
 
+     /* configure TIM2_CH2 as PWM output */
+    TIM2_CR1 = 0x0080;   /* buffered preload up-counting mode */
+    TIM2_CCMR1 = 0x6800; /* PWM mode */
+    TIM2_CCER = 0x0010;  /* channel 2 output to pin PB9 */
+    TIM2_PSC = get_APB1TIMCLK() / BUZZER_BASE - 1;
+    TIM2_CNT = 0;
+    TIM2_EGR |= 0x1; /* update event */
+}
 
+void play_buzzer(uint32_t freq) {
+    if(freq == 0) {
+        TIM2_CR1 &= ~0x1;
+        return;
+    }
+    uint32_t arr = BUZZER_BASE / freq - 1;
+    TIM2_ARR = arr;
+    TIM2_CCR2 = arr / 2; 
+    TIM2_EGR |= 0x1;   
+    TIM2_CR1 |= 0x1;     
+}
 
 void init_RGB(void) {
 #if USE_RAW_REGISTER
@@ -148,19 +180,34 @@ void init_BP(void) {
     RCC_AHB1ENR |= 0x04;
     GPIOC_MODER &= ~(3 << 26);
     GPIOC_PUPDR &= ~(3<<26);
-}
-
-
-void init_BZ(void){
-
-    RCC_AHB1ENR |= (1<<1);
-    GPIOB_MODER = (GPIOB_MODER & ~(0x3 << (18))) | (0x1 << (18));
-    GPIOB_OTYPER &= ~(0x1 << 9);
-    GPIOB_OSPEEDR = (GPIOB_OSPEEDR & ~(0x3 << 18)) | (0x3 << 18);
-    GPIOB_PUPDR &= ~(0x3 << 18);
 
 }
 
+void button_irqPC13_init(void) {
+#if USE_RAW_REGISTER
+    RCC_APB2ENR |= 1 << 14;
+    /* set PC13 as EXTI13 input */
+    SYSCFG_EXTICR4 = (SYSCFG_EXTICR4 & ~(0xf << 4)) | (0x2 << 4);
+    /* Setup interrupt for EXTI13, falling edge */
+    EXTI_IMR |= (1 << 13);
+    EXTI_RTSR &= ~(1 << 13);
+    EXTI_FTSR |= (1 << 13);
+    EXTI_PR |= (1 << 13);
+    /* enable EXTI15-10 IRQ PC13 */
+    NVIC_ISER(40 / 32) = (1 << (40 % 32));
+#else
+    rcc_periph_clock_enable(RCC_SYSCFG);
+
+    exti_select_source(EXTI13, GPIOC);
+
+    exti_enable_request(EXTI13);
+    exti_set_trigger(EXTI13, EXTI_TRIGGER_FALLING);
+    exti_reset_request(EXTI13);
+
+    nvic_enable_irq(NVIC_EXTI15_10_IRQ);
+    nvic_set_priority(NVIC_EXTI15_10_IRQ, 200);
+#endif
+}
 
 /* fonction agissant comme une barrière pour les accès mémoires */
 inline static void barriere(void) { __asm__ volatile("" ::: "memory"); }
@@ -181,7 +228,7 @@ void init_USART(void) {
     USART2_BRR = get_APB1CLK() / 9600;
     USART2_CR3 = 0;
     USART2_CR2 = 0;
-    USART2_CR1 = (1 << 2) | (1 << 3) | (1 << 13);
+    USART2_CR1 = (1 << 2) | (1 << 3) | (1 << 13) | (1 << 5)| (1<<7);
 #else
     rcc_periph_clock_enable(RCC_GPIOA);
     rcc_periph_clock_enable(RCC_USART2);
@@ -242,25 +289,18 @@ void systick_init(uint32_t freq) {
  */
 // __attribute__((interrupt))
 void sys_tick_handler() {
-   if(note_ticks > 0){
-    note_ticks--;
-   }
-   if(note_freq != 0){
-    demi_ticks--;
-    if(demi_ticks <= 0 && note_freq != 0){
-        GPIOB_ODR  ^= (1<<9);
-        demi_ticks = frequence / (2*note_freq);
+    ms++;
+   if(note_ticks > 0) {
+        note_ticks--;
+        if(note_ticks == 0 && note_jouee) {
+            play_buzzer(0); 
+            index++;
+            note_jouee = false;
+        }
     }
-   }
-   
-   if(note_ticks <= 0){
-    GPIOB_ODR  |= (1<<9);
-    index++;
-    note_jouee = false;
-    note_freq = 0;
-   }
-   
 }
+
+
 
 void _putc(const char c) {
     while ((USART2_SR & 0x80) == 0)
@@ -281,56 +321,114 @@ char _getc(void) {
     return c;
 }
 
+static const char *sentence;
+volatile int position=0;
+volatile bool busy = false;
+static volatile uint32_t mode = 0;
+volatile char buffer[256];
+volatile int cursor=0;
+
+void usart2_isr(void){
+    if (USART2_SR & USART_SR_TXE) {
+        if((USART2_SR & (1<<7))){
+            if(sentence[position] =='\0'){
+                usart_disable_tx_interrupt(USART2);
+                busy = false;
+            }else{
+                USART2_DR= sentence[position];
+                position++;
+            }
+        
+        }
+    }
+    if (USART2_SR & USART_SR_RXNE) {
+        char c = USART2_DR;
+        if (cursor < 255) {
+            buffer[cursor++] = c;
+        }
+    }
+    
+}
+
 /* Fonction non bloquante envoyant une chaîne par l'UART */
 int _async_puts(const char *s) {
-    /* Cette fonction doit utiliser un traitant d'interruption
-     * pour gérer l'envoi de la chaîne s (qui doit rester
-     * valide pendant tout l'envoi). Elle doit donc être
-     * non bloquante (pas d'attente active non plus) et
-     * renvoyer 0.
-     *
-     * Si une chaîne est déjà en cours d'envoi, cette
-     * fonction doit renvoyer 1 (et ignorer la nouvelle
-     * chaîne).
-     *
-     * Si s est NULL, le code de retour permet de savoir
-     * si une chaîne est encore en cours d'envoi ou si
-     * une nouvelle chaîne peut être envoyée.
-     */
-    /* À compléter */
-    (void)s; // to avoid unused paramater warning
-    return 0;
+
+    if(s == NULL){
+        return busy ?  1 :0;
+    }
+    if(!busy){
+        sentence = s;
+        busy = true;
+        position=0;
+        
+        usart_enable_tx_interrupt(USART2);
+        
+        return 0;
+    }
+    return 1;
 }
 
-static volatile uint32_t mode = 0;
+void clavier(void){
+    usart_disable_rx_interrupt(USART2); 
+    
+    int local_cursor = cursor; 
+    cursor = 0;            
+    
+    usart_enable_rx_interrupt(USART2);
+
+    char letter;
+    int positionR=0;
+    while(positionR<local_cursor){
+        letter = buffer[positionR];
+        switch(letter){
+            case ' ':
+                mode ^=1;
+                break;
+            case '1':
+                mode =1;
+                break;
+            case '0':
+                mode =0;
+                break;
+            default:
+                break;
+        }
+        positionR++;
+    }
+    cursor=0;
+}
+
+
+
+
 
 void exti15_10_isr() {
-#if USE_RAW_REGISTER
-    EXTI_PR |= (1 << 13); /* Clear pending register EXTIPR[13] */
-#else
-    exti_reset_request(EXTI13);
-#endif
-    mode = mode ^ 1; /* switch the mode value 0 <-> 1 */
-}
+    static uint32_t last = 0;
+    EXTI_PR = (1 << 13);
 
-
-
-__attribute__((optimize("O0"))) void play_note(uint32_t freq, uint32_t duree_ms) {
-    note_ticks = duree_ms;
-    note_freq = freq;
-    if(freq == 0) {
-        demi_ticks = 0;
-        GPIOB_ODR |= (1<<9);
-    } else {
-        demi_ticks = frequence / (2*freq);
+    if (ms - last > 200) { 
+        mode ^= 1;
+        last = ms;
     }
 }
+
+
+
+
+void play_note(uint32_t freq, uint32_t duree_ms) {
+    note_freq = freq;
+    note_ticks = duree_ms;
+    play_buzzer(freq);
+    note_jouee = true;
+}
+
+const char* c = "voiture\n\r";
 
 
 int main(void) {
     printf("\e[2J\e[1;1H\r\n");
     printf("\e[01;32m*** Welcome to Nucleo F446 ! ***\e[00m\r\n");
-
+    
     printf("\e[01;31m\t%08lx-%08lx-%08lx\e[00m\r\n", DESIG_UNIQUE_ID0,
            DESIG_UNIQUE_ID1, DESIG_UNIQUE_ID2);
     printf("SYSCLK = %9lu Hz\r\n", get_SYSCLK());
@@ -341,22 +439,35 @@ int main(void) {
 
     init_RGB();
 
-    systick_init((uint32_t)1000);
+    printf("\e[2J\e[1;1H\r\n");
+    printf("STM32 PWM Buzzer Melody\n\r");
+
+    rcc_periph_clock_enable(RCC_GPIOB);
+    rcc_periph_clock_enable(RCC_TIM2);
+
+    buzzer_pwm_init();
+    systick_init(1000); // SysTick toutes les 1 ms
 
     init_BP();
-    init_BZ();
-        
+    init_USART();
+    nvic_enable_irq(NVIC_USART2_IRQ);
+
+
+
+    button_irqPC13_init();
     bool tmp;
 
+    
     //printf("c?\n\r");
     //char c;
     //c = _getc();
     //_putc(c);
     uint32_t notes[] = {NOTE_E4, 0, NOTE_E4, 0,NOTE_F4, 0,NOTE_G4, NOTE_G4, NOTE_F4, NOTE_D4, NOTE_C4, NOTE_C4, NOTE_D4, NOTE_E4, NOTE_E4, NOTE_E4, NOTE_E4};
     uint32_t durees[] = {500, 50, 500, 50, 500, 50 ,500, 500, 500, 500, 500, 500, 500, 1000, 1000, 1000, 1000};
+    _async_puts("voiture\n\r");
     
     while (1){
-        
+        clavier();
         //tmp = ((GPIOC_IDR & (1 << 13)) == 0);
         // if(((GPIOC_IDR & (1 << 13)) == 0) ){
         //     GPIOA_ODR  ^= (1<<8);
@@ -367,18 +478,30 @@ int main(void) {
             
         // }
 
-        // GPIOB_ODR  ^= (1<<9);
+
+    
+        //tmp = ((GPIOC_IDR & (1 << 13)) == 0);
+        if(mode == 1){
+            GPIOA_ODR  |= (1<<8) | (1<<9) | (1<<10);
+        }
+        else if(mode == 0){
+            GPIOA_ODR &= ~((1<<8) | ~(1<<9) | ~(1<<10));
+        }
         // for (int duree = 0; duree < 1000000; duree++){
         //     ;
         // }
 
-        // GPIOB_ODR  &=  ~(1<<9);
 
+       
         
-        if(!note_jouee && index < 17){
+        /*if(!note_jouee && index < 15){
             play_note(notes[index], durees[index]);
             note_jouee = true;
         }
+        if(((GPIOC_IDR & (1 << 13)) == 0)){
+            index = 0;
+            note_jouee = false;
+        }*/
     }
     return 0;
 }
