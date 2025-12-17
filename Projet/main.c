@@ -25,6 +25,7 @@ volatile uint32_t note_ticks = 0;
 volatile uint32_t note_freq = 0;
 volatile bool note_jouee = false;
 volatile uint32_t index = 0;
+volatile uint32_t ms = 0;
 
 
 #define NOTE_A0 28
@@ -117,19 +118,21 @@ volatile uint32_t index = 0;
 #define NOTE_C8 4186
 #define NOTE_PAUSE 0
 
-
+//Fonction donnée dans etu_projet
 void buzzer_pwm_init(void) {
-    /* PB9 = TIM2_CH2 en alternate function */
-    GPIOB_MODER = (GPIOB_MODER & ~(3 << 18)) | (2 << 18); // AF mode
-    GPIOB_AFRH = (GPIOB_AFRH & ~(0xf << 4)) | (1 << 4);  // AF1 = TIM2
+    /* buzzer is on TIM2_CH2 */
+    /* configure PB9 as alternate function TIM2 */
+    GPIOB_MODER = (GPIOB_MODER & ~(3 << 18)) | (2 << 18); 
+    /* setup TIM2_CH2 as alternate function */
+    GPIOB_AFRH = (GPIOB_AFRH & ~(0xf << 4)) | (1 << 4);  
 
-    /* PWM mode configuration */
-    TIM2_CR1 = 0x0080;   // ARPE
-    TIM2_CCMR1 = 0x6800; // PWM mode 1 sur CH2
-    TIM2_CCER = 0x0010;  // CH2 enable
+     /* configure TIM2_CH2 as PWM output */
+    TIM2_CR1 = 0x0080;   /* buffered preload up-counting mode */
+    TIM2_CCMR1 = 0x6800; /* PWM mode */
+    TIM2_CCER = 0x0010;  /* channel 2 output to pin PB9 */
     TIM2_PSC = get_APB1TIMCLK() / BUZZER_BASE - 1;
     TIM2_CNT = 0;
-    TIM2_EGR |= 0x1; // update
+    TIM2_EGR |= 0x1; /* update event */
 }
 
 void play_buzzer(uint32_t freq) {
@@ -175,8 +178,34 @@ void init_BP(void) {
     RCC_AHB1ENR |= 0x04;
     GPIOC_MODER &= ~(3 << 26);
     GPIOC_PUPDR &= ~(3<<26);
+
 }
 
+void button_irqPC13_init(void) {
+#if USE_RAW_REGISTER
+    RCC_APB2ENR |= 1 << 14;
+    /* set PC13 as EXTI13 input */
+    SYSCFG_EXTICR4 = (SYSCFG_EXTICR4 & ~(0xf << 4)) | (0x2 << 4);
+    /* Setup interrupt for EXTI13, falling edge */
+    EXTI_IMR |= (1 << 13);
+    EXTI_RTSR &= ~(1 << 13);
+    EXTI_FTSR |= (1 << 13);
+    EXTI_PR |= (1 << 13);
+    /* enable EXTI15-10 IRQ PC13 */
+    NVIC_ISER(40 / 32) = (1 << (40 % 32));
+#else
+    rcc_periph_clock_enable(RCC_SYSCFG);
+
+    exti_select_source(EXTI13, GPIOC);
+
+    exti_enable_request(EXTI13);
+    exti_set_trigger(EXTI13, EXTI_TRIGGER_FALLING);
+    exti_reset_request(EXTI13);
+
+    nvic_enable_irq(NVIC_EXTI15_10_IRQ);
+    nvic_set_priority(NVIC_EXTI15_10_IRQ, 200);
+#endif
+}
 
 /* fonction agissant comme une barrière pour les accès mémoires */
 inline static void barriere(void) { __asm__ volatile("" ::: "memory"); }
@@ -197,7 +226,7 @@ void init_USART(void) {
     USART2_BRR = get_APB1CLK() / 9600;
     USART2_CR3 = 0;
     USART2_CR2 = 0;
-    USART2_CR1 = (1 << 2) | (1 << 3) | (1 << 13);
+    USART2_CR1 = (1 << 2) | (1 << 3) | (1 << 13) | (1 << 5);
 #else
     rcc_periph_clock_enable(RCC_GPIOA);
     rcc_periph_clock_enable(RCC_USART2);
@@ -258,6 +287,7 @@ void systick_init(uint32_t freq) {
  */
 // __attribute__((interrupt))
 void sys_tick_handler() {
+    ms++;
    if(note_ticks > 0) {
         note_ticks--;
         if(note_ticks == 0 && note_jouee) {
@@ -310,18 +340,36 @@ int _async_puts(const char *s) {
 
 static volatile uint32_t mode = 0;
 
+void usart2_isr(){
+    _puts("test");
+    if(USART2_SR & USART_SR_RXNE){
+        char c = USART2_DR;
+        if(c == '1'){
+            mode = 1;
+        }
+        else if(c == '0'){
+            mode = 0;
+        }
+        else if(c == ' '){
+            mode ^= 1;
+        }
+    }
+}
+
 void exti15_10_isr() {
-#if USE_RAW_REGISTER
-    EXTI_PR &= ~(1 << 13); /* Clear pending register EXTIPR[13] */
-#else
-    exti_reset_request(EXTI13);
-#endif
-    mode = mode ^ 1; /* switch the mode value 0 <-> 1 */
+    static uint32_t last = 0;
+    EXTI_PR = (1 << 13);
+
+    if (ms - last > 200) { 
+        mode ^= 1;
+        last = ms;
+    }
 }
 
 
 
-__attribute__((optimize("O0"))) void play_note(uint32_t freq, uint32_t duree_ms) {
+
+void play_note(uint32_t freq, uint32_t duree_ms) {
     note_freq = freq;
     note_ticks = duree_ms;
     play_buzzer(freq);
@@ -333,7 +381,7 @@ __attribute__((optimize("O0"))) void play_note(uint32_t freq, uint32_t duree_ms)
 int main(void) {
     printf("\e[2J\e[1;1H\r\n");
     printf("\e[01;32m*** Welcome to Nucleo F446 ! ***\e[00m\r\n");
-
+    
     printf("\e[01;31m\t%08lx-%08lx-%08lx\e[00m\r\n", DESIG_UNIQUE_ID0,
            DESIG_UNIQUE_ID1, DESIG_UNIQUE_ID2);
     printf("SYSCLK = %9lu Hz\r\n", get_SYSCLK());
@@ -354,9 +402,15 @@ int main(void) {
     systick_init(1000); // SysTick toutes les 1 ms
 
     init_BP();
-        
+    init_USART();
+    nvic_enable_irq(NVIC_USART2_IRQ);
+
+
+
+    button_irqPC13_init();
     bool tmp;
 
+    
     //printf("c?\n\r");
     //char c;
     //c = _getc();
@@ -496,6 +550,7 @@ uint32_t durees[] = {
 };
 */
 
+/*
 uint32_t notes[] = {
   NOTE_C5,
   NOTE_F5, NOTE_F5, NOTE_G5, NOTE_F5, NOTE_E5,
@@ -619,34 +674,160 @@ uint32_t durees[] = {
   429, 429, 429,
   857, 429
 };
+*/
+//TETRIS
+/*
+uint32_t notes[] = {
+  NOTE_E5, NOTE_B4, NOTE_C5, NOTE_D5, NOTE_C5, NOTE_B4,
+  NOTE_A4, NOTE_A4, NOTE_C5, NOTE_E5, NOTE_D5, NOTE_C5,
+  NOTE_B4, NOTE_C5, NOTE_D5, NOTE_E5,
+  NOTE_C5, NOTE_A4, NOTE_A4, NOTE_PAUSE,
+  
+  NOTE_D5, NOTE_F5, NOTE_A5, NOTE_G5, NOTE_F5,
+  NOTE_E5, NOTE_C5, NOTE_E5, NOTE_D5, NOTE_C5,
+  NOTE_B4, NOTE_B4, NOTE_C5, NOTE_D5, NOTE_E5,
+  NOTE_C5, NOTE_A4, NOTE_A4, NOTE_PAUSE,
+  
+  NOTE_E5, NOTE_C5, NOTE_D5, NOTE_B4,
+  NOTE_C5, NOTE_A4, NOTE_B4,
+  
+  NOTE_E5, NOTE_C5, NOTE_D5, NOTE_B4,
+  NOTE_C5, NOTE_E5, NOTE_A5, NOTE_GS5,
+  
+  NOTE_E5, NOTE_B4, NOTE_C5, NOTE_D5, NOTE_C5, NOTE_B4,
+  NOTE_A4, NOTE_A4, NOTE_C5, NOTE_E5, NOTE_D5, NOTE_C5,
+  NOTE_B4, NOTE_C5, NOTE_D5, NOTE_E5,
+  NOTE_C5, NOTE_A4, NOTE_A4, NOTE_PAUSE,
+  
+  NOTE_D5, NOTE_F5, NOTE_A5, NOTE_G5, NOTE_F5,
+  NOTE_E5, NOTE_C5, NOTE_E5, NOTE_D5, NOTE_C5,
+  NOTE_B4, NOTE_C5, NOTE_D5, NOTE_E5,
+  NOTE_C5, NOTE_A4, NOTE_A4, NOTE_PAUSE
+};
+
+uint32_t durees[] = {
+  429, 214, 214, 429, 214, 214,
+  429, 214, 214, 429, 214, 214,
+  429, 214, 429, 429,
+  429, 214, 214, 429,
+  
+  429, 214, 429, 214, 214,
+  429, 214, 429, 214, 214,
+  429, 214, 214, 429, 429,
+  429, 214, 214, 429,
+  
+  429, 214, 429, 214,
+  429, 214, 429,
+  
+  429, 214, 429, 214,
+  214, 214, 429, 429,
+  
+  429, 214, 214, 429, 214, 214,
+  429, 214, 214, 429, 214, 214,
+  429, 214, 429, 429,
+  429, 214, 214, 429,
+  
+  429, 214, 429, 214, 214,
+  429, 214, 429, 214, 214,
+  429, 214, 429, 429,
+  429, 214, 214, 429
+};*/
+//LETTRE A ELISE
+/*
+uint32_t notes[] = {
+  // Thème principal (début)
+  NOTE_E5, NOTE_DS5, NOTE_E5, NOTE_DS5, NOTE_E5, NOTE_B4, NOTE_D5, NOTE_C5,
+  NOTE_A4, NOTE_C4, NOTE_E4, NOTE_A4, NOTE_B4, NOTE_E4, NOTE_GS4, NOTE_B4,
+  NOTE_C5, NOTE_PAUSE, NOTE_E4, NOTE_E5, NOTE_DS5, NOTE_E5, NOTE_DS5, NOTE_E5,
+  NOTE_B4, NOTE_D5, NOTE_C5, NOTE_A4, NOTE_C4, NOTE_E4, NOTE_A4, NOTE_B4,
+  NOTE_E4, NOTE_C5, NOTE_B4, NOTE_A4, NOTE_PAUSE,
+
+  // Reprise du thème
+  NOTE_E5, NOTE_G4, NOTE_F5, NOTE_E5, NOTE_D5, NOTE_F4, NOTE_E5, NOTE_D5,
+  NOTE_C5, NOTE_E4, NOTE_D5, NOTE_C5, NOTE_B4, NOTE_PAUSE, NOTE_E4, NOTE_E5,
+  NOTE_PAUSE, NOTE_E5, NOTE_E6, NOTE_PAUSE, NOTE_PAUSE, NOTE_DS5, NOTE_E5, NOTE_PAUSE,
+  NOTE_PAUSE, NOTE_DS5, NOTE_E5, NOTE_DS5, NOTE_E5, NOTE_B4, NOTE_D5, NOTE_C5,
+  NOTE_A4, NOTE_PAUSE, NOTE_C4, NOTE_E4, NOTE_A4, NOTE_B4, NOTE_PAUSE, NOTE_E4,
+
+  NOTE_GS4, NOTE_B4, NOTE_C5, NOTE_PAUSE, NOTE_E4, NOTE_E5, NOTE_DS5, NOTE_E5,
+  NOTE_DS5, NOTE_E5, NOTE_B4, NOTE_D5, NOTE_C5, NOTE_A4, NOTE_PAUSE, NOTE_C4,
+  NOTE_E4, NOTE_A4, NOTE_B4, NOTE_PAUSE, NOTE_E4, NOTE_C5, NOTE_B4, NOTE_A4,
+  NOTE_PAUSE, NOTE_B4, NOTE_C5, NOTE_D5, NOTE_E5, NOTE_G4, NOTE_F5, NOTE_E5,
+  NOTE_D5, NOTE_F4, NOTE_E5, NOTE_D5, NOTE_C5, NOTE_E4, NOTE_D5, NOTE_C5,
+  NOTE_B4, NOTE_PAUSE, NOTE_E4, NOTE_E5, NOTE_PAUSE, NOTE_PAUSE,
+
+  // Partie secondaire
+  NOTE_C5, NOTE_E5, NOTE_A4, NOTE_B4, NOTE_C5, NOTE_D5, NOTE_E5, NOTE_C5,
+  NOTE_B4, NOTE_A4, NOTE_B4, NOTE_C5, NOTE_D5, NOTE_E5, NOTE_F5, NOTE_E5,
+  NOTE_D5, NOTE_C5, NOTE_B4, NOTE_A4, NOTE_B4, NOTE_C5, NOTE_PAUSE, NOTE_B4,
+  NOTE_A4, NOTE_G4, NOTE_A4, NOTE_B4, NOTE_C5, NOTE_PAUSE, NOTE_E4, NOTE_E5,
+  NOTE_DS5, NOTE_E5, NOTE_DS5, NOTE_E5, NOTE_B4, NOTE_D5, NOTE_C5, NOTE_A4,
+  NOTE_PAUSE, NOTE_C4, NOTE_E4, NOTE_A4, NOTE_B4, NOTE_PAUSE, NOTE_E4, NOTE_C5,
+  NOTE_B4, NOTE_A4, NOTE_PAUSE, NOTE_B4, NOTE_C5, NOTE_D5, NOTE_E5, NOTE_PAUSE
+};
+*//*
+uint32_t durees[] = {
+  // Thème principal (début)
+  187, 187, 187, 187, 187, 187, 187, 187,
+  562, 187, 187, 187, 1125, 187, 187, 187,
+  375, 94, 187, 187, 187, 187, 187, 187,
+  187, 187, 187, 187, 562, 187, 187, 187,
+  1125, 187, 187, 187, 94,
+
+  // Reprise du thème
+  562, 187, 187, 187, 562, 187, 187, 187,
+  562, 187, 187, 187, 1125, 94, 187, 187,
+  94, 187, 187, 187, 187, 187, 187, 187,
+  187, 187, 187, 187, 187, 187, 187, 187,
+  1125, 187, 187, 562, 187, 187, 187, 187,
+
+  187, 187, 94, 187, 94, 187, 187, 187,
+  187, 187, 187, 187, 187, 187, 187, 187,
+  187, 187, 187, 187, 187, 187, 187, 187,
+  94, 187, 187, 187, 187, 187, 187, 187,
+  187, 187, 187, 187, 187, 187, 187, 187,
+  187, 562, 187, 187, 94, 94,
+
+  // Partie secondaire
+  187, 187, 187, 187, 187, 187, 187, 187,
+  187, 187, 187, 187, 187, 187, 187, 187,
+  187, 187, 187, 187, 187, 187, 94, 187,
+  187, 187, 187, 187, 187, 94, 187, 187,
+  187, 187, 187, 187, 187, 187, 187, 187,
+  562, 187, 187, 187, 187, 94, 187, 187,
+  187, 187, 187, 187, 187, 187, 187, 94
+};*/
 
 
-
- 
    while (1){
-        
-        //tmp = ((GPIOC_IDR & (1 << 13)) == 0);
-        // if(((GPIOC_IDR & (1 << 13)) == 0) ){
-        //     GPIOA_ODR  ^= (1<<8);
-        //     GPIOA_ODR  ^= (1<<9);
-        //     GPIOA_ODR  ^= (1<<10);
-        //     GPIOB_ODR  |= (1<<9);
-        //     tempo_500ms();
-            
-        // }
+    usart_enable_rx_interrupt(USART2);
+    usart_disable_rx_interrupt(USART2);
+    switch(mode){
 
-        // GPIOB_ODR  ^= (1<<9);
+    }
+        //tmp = ((GPIOC_IDR & (1 << 13)) == 0);
+        if(mode == 1){
+            GPIOA_ODR  |= (1<<8) | (1<<9) | (1<<10);
+        }
+        else if(mode == 0){
+            GPIOA_ODR &= ~((1<<8) | ~(1<<9) | ~(1<<10));
+        }
         // for (int duree = 0; duree < 1000000; duree++){
         //     ;
         // }
 
         // GPIOB_ODR  &=  ~(1<<9);
 
+       
         
-        if(!note_jouee && index < 15){
+        /*if(!note_jouee && index < 15){
             play_note(notes[index], durees[index]);
             note_jouee = true;
         }
+        if(((GPIOC_IDR & (1 << 13)) == 0)){
+            index = 0;
+            note_jouee = false;
+        }*/
     }
     return 0;
 }
