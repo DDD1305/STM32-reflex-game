@@ -337,21 +337,50 @@ static volatile uint32_t mode = 0;
 volatile char buffer[256];
 volatile int cursor=0;
 
-uint32_t nb_notes = 11;
-
-uint32_t notes[] = {
-NOTE_E4, NOTE_E4, NOTE_G4, NOTE_E4, NOTE_C5, NOTE_C5, NOTE_D5, NOTE_E5, NOTE_C5, NOTE_B4, 
-NOTE_C5, NOTE_D5, NOTE_E5, NOTE_G5, NOTE_A4, NOTE_A4, NOTE_B4, NOTE_C5, NOTE_D5, NOTE_E5, 
-NOTE_F5, NOTE_G5, NOTE_A5, NOTE_B5, NOTE_C6, NOTE_C5, NOTE_B4, NOTE_A4, NOTE_G4, NOTE_F4, 
-NOTE_E4
+uint32_t nb_notes_loose = 12;
+uint32_t notes_loose[] = {
+  NOTE_C5, NOTE_G4, NOTE_E4,                               
+  NOTE_A4, NOTE_B4, NOTE_A4, NOTE_GS4, NOTE_AS4, NOTE_GS4, 
+  NOTE_G4, NOTE_D4, NOTE_E4                                
 };
 
-uint32_t durees[] = {
-300, 300, 200, 200, 200, 200, 300, 200, 200, 300, 
-200, 200, 200, 200, 300, 300, 200, 200, 200, 300, 
-200, 200, 300, 400, 300, 200, 200, 300, 200, 200, 
-500
+uint32_t durees_loose[] = {
+  450, 450, 300,        // C5(-4), G4(-4), E4(4)
+  225, 225, 225, 225, 225, 225, // Croches pointées (-8)
+  150, 150, 900         // G4(8), D4(8), E4(-2)
 };
+
+uint32_t nb_notes_win = 50;
+
+uint32_t notes_win[] = {
+  NOTE_E5, NOTE_E5, NOTE_PAUSE, NOTE_E5, NOTE_PAUSE, NOTE_C5, NOTE_E5,
+  NOTE_G5, NOTE_PAUSE, NOTE_G4, NOTE_PAUSE,
+  NOTE_C5, NOTE_G4, NOTE_PAUSE, NOTE_E4,
+  NOTE_A4, NOTE_B4, NOTE_AS4, NOTE_A4,
+  NOTE_G4, NOTE_E5, NOTE_G5, NOTE_A5, NOTE_F5, NOTE_G5,
+  NOTE_PAUSE, NOTE_E5, NOTE_C5, NOTE_D5, NOTE_B4,
+  NOTE_C5, NOTE_G4, NOTE_PAUSE, NOTE_E4,
+  NOTE_A4, NOTE_B4, NOTE_AS4, NOTE_A4,
+  NOTE_G4, NOTE_E5, NOTE_G5, NOTE_A5, NOTE_F5, NOTE_G5,
+  NOTE_PAUSE, NOTE_E5, NOTE_C5, NOTE_D5, NOTE_B4
+};
+
+uint32_t durees_win[] = {
+  150, 150, 150, 150, 150, 150, 150,
+  300, 300, 150, 300,
+  450, 150, 300, 450,
+  300, 300, 150, 300,
+  225, 225, 225, 300, 150, 150,
+  150, 300, 150, 150, 450,
+  450, 150, 300, 450,
+  300, 300, 150, 300,
+  225, 225, 225, 300, 150, 150,
+  150, 300, 150, 150, 450
+};
+
+
+
+
 
 
 
@@ -462,10 +491,25 @@ void play_note(uint32_t freq, uint32_t duree_ms) {
 
 const char* c = "voiture\n\r";
 
-void play_song(void){
-    while(index < nb_notes){
-        if(!note_jouee && index < 11){
-            play_note(notes[index], durees[index]);
+void play_song_win(void){
+    index = 0;
+    printf("index = %ld\n\r", index);
+    while(index < nb_notes_win){
+        if(!note_jouee){
+            play_note(notes_win[index], durees_win[index]);
+            note_jouee = true;
+        }
+    }
+    index = 0;
+    note_jouee = false;
+}
+
+void play_song_loose(void){
+    index = 0;
+    printf("index = %ld\n\r", index);
+    while(index < nb_notes_loose){
+        if(!note_jouee){
+            play_note(notes_loose[index], durees_loose[index]);
             note_jouee = true;
         }
     }
@@ -532,7 +576,7 @@ int main(void) {
                 mode = 3;
                 break;
             case 3:
-                play_song();
+                
                 mode = 4;
                 break;
             case 4:
