@@ -390,17 +390,11 @@ void clavier(void){
     while(positionR<local_cursor){
         letter = buffer[positionR];
         switch(letter){
-            case ' ':
-                mode ^=1;
-                break;
             case '1':
                 mode =1;
                 break;
             case '0':
                 mode =0;
-                break;
-            case 'b':
-                GPIOC_IDR &= ~(1 << 13);
                 break;
             default:
                 break;
@@ -449,17 +443,8 @@ const char* c = "voiture\n\r";
 
 
 int main(void) {
-    printf("%ld\n\r", secondes);
     printf("\e[2J\e[1;1H\r\n");
-    printf("\e[01;32m*** Welcome to Nucleo F446 ! ***\e[00m\r\n");
-    
-    printf("\e[01;31m\t%08lx-%08lx-%08lx\e[00m\r\n", DESIG_UNIQUE_ID0,
-           DESIG_UNIQUE_ID1, DESIG_UNIQUE_ID2);
-    printf("SYSCLK = %9lu Hz\r\n", get_SYSCLK());
-    printf("AHBCLK = %9lu Hz\r\n", get_AHBCLK());
-    printf("APB1CLK= %9lu Hz\r\n", get_APB1CLK());
-    printf("APB2CLK= %9lu Hz\r\n", get_APB2CLK());
-    printf("\r\n");
+    _async_puts("Bonjour, choisissez un mode pour tester vos reflexes\n\r\t Divin\n\r\t Lambda\n\r\t Pas ouf\n\r(Entrer votre choix)\n\r");
 
     init_RGB();
 
@@ -487,38 +472,38 @@ int main(void) {
     while (1){
         clavier();
         switch(mode){
-            case 0:
-            if(!change){
-                printf("Press button to start\n\r");
-                change = true;
-            }
-            break;
+                case 0:
+                if(!change){
+                    _async_puts("Press button to start\n\r");
+                    change = true;
+                }
+                break;
             
             case 1:
-            if(change){
-                printf("Started\n\r");
-                change = false;
-            }
-            alea_temp = ms % 15000 + 1;
-            if(alea_temp > 5000 && (secondes*1000 % alea_temp == 0)){
-                GPIOA_ODR  |= (1<<9);
-                start = ms;
-            }
-            break;
+                if(change){
+                    _async_puts("Started\n\r");
+                    change = false;
+                }
+                alea_temp = ms % 15000 + 1;
+                if(alea_temp > 5000 && (secondes*1000 % alea_temp == 0)){
+                    GPIOA_ODR  |= (1<<9);
+                    start = ms;
+                }
+                break;
             case 2:
-            temp_final = end - start;
-            printf("Vous avez pris : %ld ms\n\r", temp_final);
-            mode = 3;
-            break;
+                temp_final = end - start;
+                printf("Vous avez pris : %ld ms\n\r", temp_final);
+                mode = 3;
+                break;
             case 3:
-            end = 0;
-            start = 0;
-            mode = 0;
-            break;
+                end = 0;
+                start = 0;
+                mode = 0;
+                break;
             case 4:
-            break;
+                break;
             default:
-            break;
+                break;
         }
 
 
