@@ -353,6 +353,9 @@ uint32_t durees[] = {
 500
 };
 
+volatile int resultat[3];
+volatile int manche =0;
+
 
 
 void usart2_isr(void){
@@ -462,7 +465,7 @@ void play_note(uint32_t freq, uint32_t duree_ms) {
 
 const char* c = "voiture\n\r";
 
-void play_song(void){
+void play_song_win(void){
     while(index < nb_notes){
         if(!note_jouee && index < 11){
             play_note(notes[index], durees[index]);
@@ -494,7 +497,6 @@ int main(void) {
 
 
     button_irqPC13_init();
-    bool tmp;
     uint32_t alea_temp = 0;
     uint32_t temp_final = 0;
 
@@ -510,7 +512,7 @@ int main(void) {
         switch(mode){
                 case 0:
                 if(!change){
-                    _async_puts("Press button to start\n\r");
+                    _async_puts("\n\rPress button to start\n\r");
                     change = true;
                 }
                 break;
@@ -528,18 +530,43 @@ int main(void) {
                 break;
             case 2:
                 temp_final = end - start;
+                resultat[manche] = temp_final;
+                manche++;
                 printf("Vous avez pris : %ld ms\n\r", temp_final);
-                mode = 3;
+                if(manche>=3){
+                    mode=5;
+                }else{
+                    mode = 4;
+                }
+                
+                
                 break;
             case 3:
-                play_song();
+                play_song_win();
                 mode = 4;
                 break;
             case 4:
                 end = 0;
                 start = 0;
                 mode = 0;
+                
+                
                 break;
+            case 5:
+                int sum=(resultat[0]+resultat[1]+resultat[2] )/3;
+                if(sum<300){
+                    printf("Votre moyenne est: %i \n\rFelicitation\n\r", sum);
+                    mode=3;
+                }else{
+                    printf("Votre moyenne est: %i \n\rPerdu\n\r", sum);
+                    mode=6;
+                }
+                break;
+            case 6:
+                //play_song_loose();
+                mode=4;
+                break;
+
             default:
                 break;
         }
