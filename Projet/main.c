@@ -124,6 +124,7 @@ volatile uint32_t tick = 0;
 #define NOTE_C8 4186
 #define NOTE_PAUSE 0
 
+void play_song_loose(void);
 //Fonction donnée dans etu_projet
 void buzzer_pwm_init(void) {
     /* buzzer is on TIM2_CH2 */
@@ -345,9 +346,9 @@ uint32_t notes_loose[] = {
 };
 
 uint32_t durees_loose[] = {
-  450, 450, 300,        // C5(-4), G4(-4), E4(4)
-  225, 225, 225, 225, 225, 225, // Croches pointées (-8)
-  150, 150, 900         // G4(8), D4(8), E4(-2)
+  450, 450, 300,       
+  225, 225, 225, 225, 225, 225, 
+  150, 150, 900      
 };
 
 uint32_t nb_notes_win = 50;
@@ -447,7 +448,14 @@ void clavier(void){
                 break;
             case '\n':
             case '\r':
-                mode=1;
+                switch(mode){
+                    case 0:
+                        mode = 1;
+                        break;
+                    default:
+                        mode = 0;
+                        break;
+                }
             default:
                 break;
         }
@@ -468,14 +476,20 @@ void exti15_10_isr() {
     if (ms - last > 200) { 
         switch(mode){
             case 0:
-            mode = 1;
-            break;
+                mode = 1;
+                break;
             case 1:
-            end = ms;
-            GPIOA_ODR  &= ~(1<<9);
-            mode = 2;
+                if(GPIOA_ODR && (1<<9)){
+                end = ms;
+                GPIOA_ODR  &= ~(1<<9);
+                mode = 2;
+                }
+                else{
+                    mode = 7; 
+                }
+                break;
             default:
-            break;
+                break;
         }
         last = ms;
     }
@@ -495,32 +509,33 @@ const char* c = "voiture\n\r";
 
 void play_song_win(void){
     index = 0;
-    printf("index = %ld\n\r", index);
     while(index < nb_notes_win){
         if(!note_jouee){
             play_note(notes_win[index], durees_win[index]);
             note_jouee = true;
         }
     }
+    play_buzzer(0);
     index = 0;
     note_jouee = false;
 }
 
 void play_song_loose(void){
     index = 0;
-    printf("index = %ld\n\r", index);
     while(index < nb_notes_loose){
         if(!note_jouee){
             play_note(notes_loose[index], durees_loose[index]);
             note_jouee = true;
         }
     }
+    play_buzzer(0);
     index = 0;
     note_jouee = false;
 }
 
 int main(void) {
     printf("\e[2J\e[1;1H\r\n");
+    
     _async_puts("Le jeu va tester vos reflexes sur 3 essais\n\rAppuyer sur entrée pour lancer le jeu\n\r");
 
 
@@ -555,7 +570,7 @@ int main(void) {
         switch(mode){
                 case 0:
                 if(!change){
-                    _async_puts("\n\rPress button to start\n\r");
+                    _async_puts("\n\rAppuyez sur le bouton poussoir de la carte mère\n\r");
                     change = true;
                 }
                 break;
@@ -592,7 +607,9 @@ int main(void) {
                 end = 0;
                 start = 0;
                 mode = 0;
-                
+                if(manche >= 3){
+                    manche = 0;
+                }
                 
                 break;
             case 5:
@@ -606,10 +623,14 @@ int main(void) {
                 }
                 break;
             case 6:
-                //play_song_loose();
+                play_song_loose();
                 mode=4;
                 break;
-
+            case 7:
+                _async_puts("Trop rapide ! On recommence depuis le début\n\r");
+                play_song_loose();
+                manche = 3;
+                mode = 4;
             default:
                 break;
         }
