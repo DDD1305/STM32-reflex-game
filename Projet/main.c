@@ -414,6 +414,9 @@ void clavier(void){
             case '0':
                 mode =0;
                 break;
+            case '\n':
+            case '\r':
+                mode=1;
             default:
                 break;
         }
@@ -471,17 +474,9 @@ void play_song(void){
 }
 
 int main(void) {
-    printf("%ld\n\r", secondes);
     printf("\e[2J\e[1;1H\r\n");
-    printf("\e[01;32m*** Welcome to Nucleo F446 ! ***\e[00m\r\n");
-    
-    printf("\e[01;31m\t%08lx-%08lx-%08lx\e[00m\r\n", DESIG_UNIQUE_ID0,
-           DESIG_UNIQUE_ID1, DESIG_UNIQUE_ID2);
-    printf("SYSCLK = %9lu Hz\r\n", get_SYSCLK());
-    printf("AHBCLK = %9lu Hz\r\n", get_AHBCLK());
-    printf("APB1CLK= %9lu Hz\r\n", get_APB1CLK());
-    printf("APB2CLK= %9lu Hz\r\n", get_APB2CLK());
-    printf("\r\n");
+    _async_puts("Le jeu va tester vos reflexes sur 3 essais\n\rAppuyer sur entrée pour lancer le jeu\n\r");
+
 
     init_RGB();
 
@@ -513,16 +508,16 @@ int main(void) {
 
         clavier();
         switch(mode){
-            case 0:
+                case 0:
                 if(!change){
-                    printf("Press button to start\n\r");
+                    _async_puts("Press button to start\n\r");
                     change = true;
                 }
                 break;
             
             case 1:
                 if(change){
-                    printf("Started\n\r");
+                    _async_puts("Started\n\r");
                     change = false;
                 }
                 alea_temp = ms % 15000 + 1;
