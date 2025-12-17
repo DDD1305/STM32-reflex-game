@@ -28,7 +28,11 @@ volatile uint32_t note_freq = 0;
 volatile bool note_jouee = false;
 volatile uint32_t index = 0;
 volatile uint32_t ms = 0;
-
+volatile uint32_t temps = 0;
+volatile uint32_t start = 0;
+volatile uint32_t end = 0;
+volatile uint32_t secondes = 0;
+volatile uint32_t tick = 0;
 
 #define NOTE_A0 28
 #define NOTE_AS0 29
@@ -289,6 +293,11 @@ void systick_init(uint32_t freq) {
  */
 // __attribute__((interrupt))
 void sys_tick_handler() {
+    tick++;
+    if(tick >= 1000){
+        secondes++;
+        tick = 0;
+    }
     ms++;
    if(note_ticks > 0) {
         note_ticks--;
@@ -390,6 +399,9 @@ void clavier(void){
             case '0':
                 mode =0;
                 break;
+            case 'b':
+                GPIOC_IDR &= ~(1 << 13);
+                break;
             default:
                 break;
         }
@@ -401,13 +413,24 @@ void clavier(void){
 
 
 
-
-void exti15_10_isr() {
+//si la led est rouge alors je la passe en vert et je stocke la valeur de seconde*1000+ms à ce moment la
+void exti15_10_isr() { 
+    
     static uint32_t last = 0;
     EXTI_PR = (1 << 13);
 
     if (ms - last > 200) { 
-        mode ^= 1;
+        switch(mode){
+            case 0:
+            mode = 1;
+            break;
+            case 1:
+            end = ms;
+            GPIOA_ODR  &= ~(1<<9);
+            mode = 2;
+            default:
+            break;
+        }
         last = ms;
     }
 }
@@ -426,6 +449,7 @@ const char* c = "voiture\n\r";
 
 
 int main(void) {
+    printf("%ld\n\r", secondes);
     printf("\e[2J\e[1;1H\r\n");
     printf("\e[01;32m*** Welcome to Nucleo F446 ! ***\e[00m\r\n");
     
@@ -439,8 +463,6 @@ int main(void) {
 
     init_RGB();
 
-    printf("\e[2J\e[1;1H\r\n");
-    printf("STM32 PWM Buzzer Melody\n\r");
 
     rcc_periph_clock_enable(RCC_GPIOB);
     rcc_periph_clock_enable(RCC_TIM2);
@@ -456,45 +478,58 @@ int main(void) {
 
     button_irqPC13_init();
     bool tmp;
-
-    
-    //printf("c?\n\r");
-    //char c;
-    //c = _getc();
-    //_putc(c);
-    uint32_t notes[] = {NOTE_E4, 0, NOTE_E4, 0,NOTE_F4, 0,NOTE_G4, NOTE_G4, NOTE_F4, NOTE_D4, NOTE_C4, NOTE_C4, NOTE_D4, NOTE_E4, NOTE_E4, NOTE_E4, NOTE_E4};
-    uint32_t durees[] = {500, 50, 500, 50, 500, 50 ,500, 500, 500, 500, 500, 500, 500, 1000, 1000, 1000, 1000};
-    _async_puts("voiture\n\r");
+    uint32_t alea_temp = 0;
+    uint32_t temp_final = 0;
+    uint32_t notes[] = {NOTE_E4, NOTE_E4,NOTE_F4,NOTE_G4, NOTE_G4, NOTE_F4, NOTE_D4, NOTE_C4, NOTE_C4, NOTE_D4, NOTE_E4};
+    uint32_t durees[] = {500, 500, 500,500, 500, 500, 500, 500, 500, 500, 1000};
+    bool change = false;
     
     while (1){
         clavier();
-        //tmp = ((GPIOC_IDR & (1 << 13)) == 0);
-        // if(((GPIOC_IDR & (1 << 13)) == 0) ){
-        //     GPIOA_ODR  ^= (1<<8);
-        //     GPIOA_ODR  ^= (1<<9);
-        //     GPIOA_ODR  ^= (1<<10);
-        //     GPIOB_ODR  |= (1<<9);
-        //     tempo_500ms();
+        switch(mode){
+            case 0:
+            if(!change){
+                printf("Press button to start\n\r");
+                change = true;
+            }
+            break;
             
-        // }
+            case 1:
+            if(change){
+                printf("Started\n\r");
+                change = false;
+            }
+            alea_temp = ms % 15000 + 1;
+            if(alea_temp > 5000 && (secondes*1000 % alea_temp == 0)){
+                GPIOA_ODR  |= (1<<9);
+                start = ms;
+            }
+            break;
+            case 2:
+            temp_final = end - start;
+            printf("Vous avez pris : %ld ms\n\r", temp_final);
+            mode = 3;
+            break;
+            case 3:
+            end = 0;
+            start = 0;
+            mode = 0;
+            break;
+            case 4:
+            break;
+            default:
+            break;
+        }
 
 
-    
-        //tmp = ((GPIOC_IDR & (1 << 13)) == 0);
-        if(mode == 1){
+        /*if(mode == 1){
             GPIOA_ODR  |= (1<<8) | (1<<9) | (1<<10);
         }
         else if(mode == 0){
             GPIOA_ODR &= ~((1<<8) | ~(1<<9) | ~(1<<10));
-        }
-        // for (int duree = 0; duree < 1000000; duree++){
-        //     ;
-        // }
+        }*/
 
-
-       
-        
-        /*if(!note_jouee && index < 15){
+        /*if(!note_jouee && index < 11){
             play_note(notes[index], durees[index]);
             note_jouee = true;
         }
