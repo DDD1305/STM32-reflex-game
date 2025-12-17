@@ -137,7 +137,9 @@ void buzzer_pwm_init(void) {
     TIM2_CR1 = 0x0080;   /* buffered preload up-counting mode */
     TIM2_CCMR1 = 0x6800; /* PWM mode */
     TIM2_CCER = 0x0010;  /* channel 2 output to pin PB9 */
-    TIM2_PSC = get_APB1TIMCLK() / BUZZER_BASE - 1;
+    /*permet de régler la fréquence du timer du buzzer sur un certain nombre de ticks
+    pour que les fréquences des notes de musique soient utilisables tels qu'elles par le buzzer*/
+    TIM2_PSC = get_APB1TIMCLK() / BUZZER_BASE - 1; 
     TIM2_CNT = 0;
     TIM2_EGR |= 0x1; /* update event */
 }
@@ -363,7 +365,7 @@ uint32_t notes_win[] = {
   NOTE_C5, NOTE_G4, NOTE_PAUSE, NOTE_E4,
   NOTE_A4, NOTE_B4, NOTE_AS4, NOTE_A4,
   NOTE_G4, NOTE_E5, NOTE_G5, NOTE_A5, NOTE_F5, NOTE_G5,
-  NOTE_PAUSE, NOTE_E5, NOTE_C5, NOTE_D5, NOTE_B4
+  NOTE_PAUSE, NOTE_E5, NOTE_C5, NOTE_D5, NOTE_B4, NOTE_PAUSE
 };
 
 uint32_t durees_win[] = {
@@ -376,7 +378,7 @@ uint32_t durees_win[] = {
   450, 150, 300, 450,
   300, 300, 150, 300,
   225, 225, 225, 300, 150, 150,
-  150, 300, 150, 150, 450
+  150, 300, 150, 150, 450, 250
 };
 
 
@@ -440,12 +442,6 @@ void clavier(void){
     while(positionR<local_cursor){
         letter = buffer[positionR];
         switch(letter){
-            case '1':
-                mode =1;
-                break;
-            case '0':
-                mode =0;
-                break;
             case '\n':
             case '\r':
                 switch(mode){
@@ -479,7 +475,7 @@ void exti15_10_isr() {
                 mode = 1;
                 break;
             case 1:
-                if(GPIOA_ODR && (1<<9)){
+                if(GPIOA_ODR & (1<<9)){
                 end = ms;
                 GPIOA_ODR  &= ~(1<<9);
                 mode = 2;
@@ -596,11 +592,10 @@ int main(void) {
                 }else{
                     mode = 4;
                 }
-                
-                
                 break;
             case 3:
                 play_song_win();
+                _async_puts("\n\rNouvelle partie\n\rAppuyez sur le bouton poussoir de la carte mère\n\r");
                 mode = 4;
                 break;
             case 4:
@@ -610,7 +605,6 @@ int main(void) {
                 if(manche >= 3){
                     manche = 0;
                 }
-                
                 break;
             case 5:
                 int sum=(resultat[0]+resultat[1]+resultat[2] )/3;
@@ -625,12 +619,14 @@ int main(void) {
             case 6:
                 play_song_loose();
                 mode=4;
+                _async_puts("\n\rNouvelle partie\n\rAppuyez sur le bouton poussoir de la carte mère\n\r");
                 break;
             case 7:
                 _async_puts("Trop rapide ! On recommence depuis le début\n\r");
                 play_song_loose();
                 manche = 3;
                 mode = 4;
+                _async_puts("\n\rNouvelle partie\n\rAppuyez sur le bouton poussoir de la carte mère\n\r");
             default:
                 break;
         }
