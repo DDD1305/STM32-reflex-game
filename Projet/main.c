@@ -7,6 +7,7 @@
 #include <stdio.h>
 #include <stdbool.h>
 #include <string.h>
+#include <stdlib.h>
 #include <libopencm3/cm3/scb.h>
 #include <libopencm3/stm32/exti.h>
 #include <libopencm3/stm32/syscfg.h>
@@ -321,47 +322,44 @@ char _getc(void) {
 }
 
 static const char *sentence;
-volatile int position=-1;
+volatile int position=0;
 volatile bool busy = false;
+static volatile uint32_t mode = 0;
+volatile char buffer[256];
+volatile int cursor=0;
 
 void usart2_isr(void){
-
-    if((USART2_SR & (1<<7))){
-        position++;
-        if(sentence[position] =='\0'){
-            usart_disable_tx_interrupt(USART2);
-            busy = false;
-        }else{
-            USART2_DR= sentence[position];
-        }
+    if (USART2_SR & USART_SR_TXE) {
+        if((USART2_SR & (1<<7))){
+            if(sentence[position] =='\0'){
+                usart_disable_tx_interrupt(USART2);
+                busy = false;
+            }else{
+                USART2_DR= sentence[position];
+                position++;
+            }
         
+        }
+    }
+    if (USART2_SR & USART_SR_RXNE) {
+        char c = USART2_DR;
+        if (cursor < 255) {
+            buffer[cursor++] = c;
+        }
     }
     
 }
 
 /* Fonction non bloquante envoyant une chaîne par l'UART */
 int _async_puts(const char *s) {
-    /* Cette fonction doit utiliser un traitant d'interruption
-     * pour gérer l'envoi de la chaîne s (qui doit rester
-     * valide pendant tout l'envoi). Elle doit donc être
-     * non bloquante (pas d'attente active non plus) et
-     * renvoyer 0.
-     *
-     * Si une chaîne est déjà en cours d'envoi, cette
-     * fonction doit renvoyer 1 (et ignorer la nouvelle
-     * chaîne).
-     *
-     * Si s est NULL, le code de retour permet de savoir
-     * si une chaîne est encore en cours d'envoi ou si
-     * une nouvelle chaîne peut être envoyée.
-     */
+
     if(s == NULL){
         return busy ?  1 :0;
     }
     if(!busy){
         sentence = s;
         busy = true;
-        position=-1;
+        position=0;
         
         usart_enable_tx_interrupt(USART2);
         
@@ -370,23 +368,39 @@ int _async_puts(const char *s) {
     return 1;
 }
 
-static volatile uint32_t mode = 0;
+void clavier(void){
+    usart_disable_rx_interrupt(USART2); 
+    
+    int local_cursor = cursor; 
+    cursor = 0;            
+    
+    usart_enable_rx_interrupt(USART2);
 
-void usart2_isr(){
-    _puts("test");
-    if(USART2_SR & USART_SR_RXNE){
-        char c = USART2_DR;
-        if(c == '1'){
-            mode = 1;
+    char letter;
+    int positionR=0;
+    while(positionR<local_cursor){
+        letter = buffer[positionR];
+        switch(letter){
+            case ' ':
+                mode ^=1;
+                break;
+            case '1':
+                mode =1;
+                break;
+            case '0':
+                mode =0;
+                break;
+            default:
+                break;
         }
-        else if(c == '0'){
-            mode = 0;
-        }
-        else if(c == ' '){
-            mode ^= 1;
-        }
+        positionR++;
     }
+    cursor=0;
 }
+
+
+
+
 
 void exti15_10_isr() {
     static uint32_t last = 0;
@@ -426,7 +440,7 @@ int main(void) {
     init_RGB();
 
     printf("\e[2J\e[1;1H\r\n");
-    printf("STM32 PWM Buzzer Melody\n");
+    printf("STM32 PWM Buzzer Melody\n\r");
 
     rcc_periph_clock_enable(RCC_GPIOB);
     rcc_periph_clock_enable(RCC_TIM2);
@@ -450,9 +464,10 @@ int main(void) {
     //_putc(c);
     uint32_t notes[] = {NOTE_E4, 0, NOTE_E4, 0,NOTE_F4, 0,NOTE_G4, NOTE_G4, NOTE_F4, NOTE_D4, NOTE_C4, NOTE_C4, NOTE_D4, NOTE_E4, NOTE_E4, NOTE_E4, NOTE_E4};
     uint32_t durees[] = {500, 50, 500, 50, 500, 50 ,500, 500, 500, 500, 500, 500, 500, 1000, 1000, 1000, 1000};
+    _async_puts("voiture\n\r");
     
     while (1){
-        
+        clavier();
         //tmp = ((GPIOC_IDR & (1 << 13)) == 0);
         // if(((GPIOC_IDR & (1 << 13)) == 0) ){
         //     GPIOA_ODR  ^= (1<<8);
@@ -464,7 +479,7 @@ int main(void) {
         // }
 
 
-    }
+    
         //tmp = ((GPIOC_IDR & (1 << 13)) == 0);
         if(mode == 1){
             GPIOA_ODR  |= (1<<8) | (1<<9) | (1<<10);
