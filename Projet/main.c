@@ -7,6 +7,7 @@
 #include <libopencm3/stm32/syscfg.h>
 #include <libopencm3/stm32/usart.h>
 #include <libopencmsis/core_cm3.h>
+#include <libopencm3/cm3/nvic.h>
 #include <math.h>
 #include <stdio.h>
 #include <string.h>
@@ -175,13 +176,16 @@ __attribute__((optimize("O0"))) void tempo_500ms(void) {
 
 void init_USART(void) {
 #if USE_RAW_REGISTER
-    RCC_AHB1ENR |= 0x01;
+    // RCC_AHB1ENR |= 0x01;
+    // RCC_APB1ENR |= 0x01;
     GPIOA_MODER = (GPIOA_MODER & 0xFFFFFF0F) | 0x000000A0;
     GPIOA_AFRL = (GPIOA_AFRL & 0xFFFF00FF) | 0x00007700;
     USART2_BRR = get_APB1CLK() / 9600;
     USART2_CR3 = 0;
     USART2_CR2 = 0;
-    USART2_CR1 = (1 << 2) | (1 << 3) | (1 << 13);
+    USART2_CR1 = (1 << 2) | (1 << 3) | (1 << 13) | (1<<7) ;
+    
+
 #else
     rcc_periph_clock_enable(RCC_GPIOA);
     rcc_periph_clock_enable(RCC_USART2);
@@ -262,6 +266,8 @@ void sys_tick_handler() {
    
 }
 
+
+
 void _putc(const char c) {
     while ((USART2_SR & 0x80) == 0)
         ;
@@ -281,6 +287,25 @@ char _getc(void) {
     return c;
 }
 
+static const char *sentence;
+volatile int position=-1;
+volatile bool busy = false;
+
+void usart2_isr(void){
+
+    if((USART2_SR & (1<<7))){
+        position++;
+        if(sentence[position] =='\0'){
+            usart_disable_tx_interrupt(USART2);
+            busy = false;
+        }else{
+            USART2_DR= sentence[position];
+        }
+        
+    }
+    
+}
+
 /* Fonction non bloquante envoyant une chaîne par l'UART */
 int _async_puts(const char *s) {
     /* Cette fonction doit utiliser un traitant d'interruption
@@ -297,9 +322,19 @@ int _async_puts(const char *s) {
      * si une chaîne est encore en cours d'envoi ou si
      * une nouvelle chaîne peut être envoyée.
      */
-    /* À compléter */
-    (void)s; // to avoid unused paramater warning
-    return 0;
+    if(s == NULL){
+        return busy ?  1 :0;
+    }
+    if(!busy){
+        sentence = s;
+        busy = true;
+        position=-1;
+        
+        usart_enable_tx_interrupt(USART2);
+        
+        return 0;
+    }
+    return 1;
 }
 
 static volatile uint32_t mode = 0;
@@ -326,6 +361,7 @@ __attribute__((optimize("O0"))) void play_note(uint32_t freq, uint32_t duree_ms)
     }
 }
 
+const char* c = "voiture\n\r";
 
 int main(void) {
     printf("\e[2J\e[1;1H\r\n");
@@ -345,7 +381,8 @@ int main(void) {
 
     init_BP();
     init_BZ();
-        
+    init_USART();
+    nvic_enable_irq(NVIC_USART2_IRQ);
     bool tmp;
 
     //printf("c?\n\r");
@@ -354,7 +391,7 @@ int main(void) {
     //_putc(c);
     uint32_t notes[] = {NOTE_E4, 0, NOTE_E4, 0,NOTE_F4, 0,NOTE_G4, NOTE_G4, NOTE_F4, NOTE_D4, NOTE_C4, NOTE_C4, NOTE_D4, NOTE_E4, NOTE_E4, NOTE_E4, NOTE_E4};
     uint32_t durees[] = {500, 50, 500, 50, 500, 50 ,500, 500, 500, 500, 500, 500, 500, 1000, 1000, 1000, 1000};
-    
+    _async_puts(c);
     while (1){
         
         //tmp = ((GPIOC_IDR & (1 << 13)) == 0);
@@ -375,10 +412,12 @@ int main(void) {
         // GPIOB_ODR  &=  ~(1<<9);
 
         
-        if(!note_jouee && index < 17){
-            play_note(notes[index], durees[index]);
-            note_jouee = true;
-        }
+        // if(!note_jouee && index < 17){
+        //     play_note(notes[index], durees[index]);
+        //     note_jouee = true;
+        // }
+
+    
     }
     return 0;
 }
