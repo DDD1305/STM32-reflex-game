@@ -396,6 +396,9 @@ void clavier(void){
             case '0':
                 mode =0;
                 break;
+            case '\n':
+            case '\r':
+                mode=1;
             default:
                 break;
         }
@@ -444,7 +447,8 @@ const char* c = "voiture\n\r";
 
 int main(void) {
     printf("\e[2J\e[1;1H\r\n");
-    _async_puts("Bonjour, choisissez un mode pour tester vos reflexes\n\r\t Divin\n\r\t Lambda\n\r\t Pas ouf\n\r(Entrer votre choix)\n\r");
+    _async_puts("Le jeu va tester vos reflexes sur 3 essais\n\rAppuyer sur entrée pour lancer le jeu\n\r");
+
 
     init_RGB();
 
